@@ -22,3 +22,4 @@ RUN chmod +x /start.sh
 
 EXPOSE 8000
 CMD ["/start.sh"]
+# force rebuild Wed Apr 15 22:35:12 PDT 2026
