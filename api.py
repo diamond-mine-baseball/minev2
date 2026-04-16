@@ -24,10 +24,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 # ── Config ─────────────────────────────────────────────────────────────────────
+import os as _os
 
-BASE         = Path.home() / "Desktop" / "DiamondMinev2"
-DB_PATH      = BASE / "diamondmine.db"
-HEADSHOT_DIR = BASE / "data" / "Headshots"
+_IS_PROD     = _os.getenv("RAILWAY_ENVIRONMENT") is not None or _os.getenv("DB_PATH") is not None
+DB_PATH      = Path(_os.getenv("DB_PATH", "/data/diamondmine.db")) if _IS_PROD else Path.home() / "Desktop" / "DiamondMinev2" / "diamondmine.db"
+HEADSHOT_DIR = Path(_os.getenv("HEADSHOT_DIR", "/data/headshots")) if _IS_PROD else Path.home() / "Desktop" / "DiamondMinev2" / "data" / "Headshots"
 CURRENT_YEAR = datetime.now().year
 MLB_API      = "https://statsapi.mlb.com/api/v1"
 
@@ -67,17 +68,17 @@ def mlb_get(path, params=None):
 
 @app.get("/health")
 def health():
-    conn = get_db()
     try:
-        counts = {}
-        for t in ["batting", "pitching", "fielding", "drs", "player"]:
-            counts[t] = conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+        conn = get_db()
+        counts = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                  for t in ["batting", "pitching", "fielding", "drs", "player"]}
         freshness = rows_to_list(conn.execute(
             "SELECT source, table_name, last_updated, rows_affected FROM data_freshness"
         ).fetchall())
-        return {"status": "ok", "counts": counts, "freshness": freshness}
-    finally:
         conn.close()
+        return {"status": "ok", "counts": counts, "freshness": freshness}
+    except Exception as e:
+        return {"status": "no_db", "error": str(e)}
 
 # ── Player search ──────────────────────────────────────────────────────────────
 
@@ -637,11 +638,12 @@ def hof_lookup(name: str = Query(...)):
 
 if __name__ == "__main__":
     import uvicorn
-    print("""
+    port = int(_os.getenv("PORT", 5001))
+    print(f"""
 ╔══════════════════════════════════════╗
 ║   DiamondMine API v2.0               ║
-║   http://localhost:5001              ║
-║   Docs: http://localhost:5001/docs   ║
+║   http://localhost:{port}              ║
+║   Docs: http://localhost:{port}/docs   ║
 ╚══════════════════════════════════════╝
 """)
-uvicorn.run(app, host="0.0.0.0", port=5001)
+    uvicorn.run(app, host="0.0.0.0", port=port)
