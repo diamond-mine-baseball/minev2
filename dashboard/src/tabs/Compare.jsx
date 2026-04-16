@@ -375,13 +375,27 @@ export default function Compare() {
   const radarKeys = type === 'batting' ? BATTING_RADAR : PITCHING_RADAR
   const barKeys   = type === 'batting' ? BATTING_BARS  : PITCHING_BARS
 
-  // Min-max normalize for radar: best player = 100, worst = 0 per stat
-  const statRanges = {}
-  radarKeys.forEach(k => {
-    const vals = data.map(p => Number(p[k])).filter(v => v !== null && !isNaN(v))
-    if (!vals.length) { statRanges[k] = { min: 0, max: 1 }; return }
-    statRanges[k] = { min: Math.min(...vals), max: Math.max(...vals) }
-  })
+  // Normalize against fixed historical ranges so scores reflect absolute quality,
+  // not just rank among the compared players (avoids everyone scoring 100 or 0)
+  const FIXED_RANGES = {
+    // Batting career totals
+    bwar:    { min: 0,    max: 170  },  // Ruth ~163
+    opsplus: { min: 80,   max: 220  },
+    hr:      { min: 0,    max: 800  },
+    rbi:     { min: 0,    max: 2300 },
+    avg:     { min: 0.220,max: 0.370},
+    ops:     { min: 0.600,max: 1.20 },
+    sb:      { min: 0,    max: 1500 },
+    bb_pct:  { min: 4,    max: 22   },
+    k_pct:   { min: 5,    max: 35   },
+    // Pitching career totals
+    eraplus: { min: 80,   max: 220  },
+    so:      { min: 0,    max: 5800 },  // Ryan ~5714
+    k_9:     { min: 4.0,  max: 13.0 },
+    bb_9:    { min: 1.0,  max: 6.0  },
+    whip:    { min: 0.90, max: 1.80 },
+    era:     { min: 1.5,  max: 6.0  },
+  }
 
   const radarData = {
     labels: radarKeys.map(k => RADAR_LABELS[k] || k.toUpperCase()),
@@ -390,12 +404,12 @@ export default function Compare() {
       data:                radarKeys.map(k => {
         const v = Number(p[k])
         if (v === null || isNaN(v)) return 0
-        const { min, max } = statRanges[k]
-        const range = max - min || 1
-        // Inverse stats: lower is better → invert so best player scores 100
+        const range = FIXED_RANGES[k] || { min: 0, max: 1 }
+        const span = range.max - range.min || 1
+        const clamped = Math.max(range.min, Math.min(range.max, v))
         return INVERSE.has(k)
-          ? Math.round((max - v) / range * 100)
-          : Math.round((v - min) / range * 100)
+          ? Math.round((range.max - clamped) / span * 100)
+          : Math.round((clamped - range.min) / span * 100)
       }),
       borderColor:         COLORS[i],
       backgroundColor:     COLORS[i] + '18',
