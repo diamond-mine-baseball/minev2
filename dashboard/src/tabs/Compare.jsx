@@ -375,11 +375,12 @@ export default function Compare() {
   const radarKeys = type === 'batting' ? BATTING_RADAR : PITCHING_RADAR
   const barKeys   = type === 'batting' ? BATTING_BARS  : PITCHING_BARS
 
-  // Normalize for radar
-  const maxes = {}
+  // Min-max normalize for radar: best player = 100, worst = 0 per stat
+  const statRanges = {}
   radarKeys.forEach(k => {
-    const vals = data.map(p => Math.abs(Number(p[k]) || 0)).filter(v => v > 0)
-    maxes[k] = vals.length ? Math.max(...vals) : 1
+    const vals = data.map(p => Number(p[k])).filter(v => v !== null && !isNaN(v))
+    if (!vals.length) { statRanges[k] = { min: 0, max: 1 }; return }
+    statRanges[k] = { min: Math.min(...vals), max: Math.max(...vals) }
   })
 
   const radarData = {
@@ -387,9 +388,14 @@ export default function Compare() {
     datasets: data.filter(p => !p.error).map((p, i) => ({
       label:               p.name,
       data:                radarKeys.map(k => {
-        const v = Number(p[k]) || 0
-        const pct = maxes[k] ? (v / maxes[k]) * 100 : 0
-        return INVERSE.has(k) ? Math.max(0, 100 - pct) : pct
+        const v = Number(p[k])
+        if (v === null || isNaN(v)) return 0
+        const { min, max } = statRanges[k]
+        const range = max - min || 1
+        // Inverse stats: lower is better → invert so best player scores 100
+        return INVERSE.has(k)
+          ? Math.round((max - v) / range * 100)
+          : Math.round((v - min) / range * 100)
       }),
       borderColor:         COLORS[i],
       backgroundColor:     COLORS[i] + '18',
