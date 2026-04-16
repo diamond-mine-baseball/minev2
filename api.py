@@ -410,7 +410,7 @@ def compare(
                     row = conn.execute("""
                         SELECT p.name, SUM(p.w) w, SUM(p.sv) sv, SUM(p.g) g,
                                SUM(p.gs) gs, SUM(p.so) so, SUM(p.bb) bb,
-                               SUM(p.er) er,
+                               SUM(p.er) er, SUM(p.h) h,
                                ROUND(SUM(p.ip),1) ip,
                                ROUND(SUM(p.bwar),1) bwar,
                                ROUND(SUM(p.er)*9.0/NULLIF(SUM(p.ip),0), 2) era,
@@ -418,6 +418,7 @@ def compare(
                                  SUM(COALESCE(p.eraplus,100)*COALESCE(p.ip,0)) /
                                  NULLIF(SUM(CASE WHEN p.eraplus IS NOT NULL THEN COALESCE(p.ip,0) ELSE 0 END),0)
                                ) eraplus,
+                               ROUND((SUM(p.h)+SUM(p.bb))*1.0/NULLIF(SUM(p.ip),0), 3) whip,
                                CASE WHEN SUM(p.ip) > 0
                                     THEN ROUND(SUM(p.so)*9.0/SUM(p.ip), 2)
                                     ELSE NULL END k_9,

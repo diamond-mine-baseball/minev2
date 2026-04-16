@@ -16,9 +16,9 @@ ChartJS.register(RadialLinearScale, CategoryScale, LinearScale,
 const COLORS = [T.accent, '#4a9aff', '#ff9a4a', '#c84aff', '#4affc8', '#ff4a7a']
 
 const BATTING_RADAR  = ['bwar','opsplus','hr','sb','bb_pct','ops']
-const PITCHING_RADAR = ['bwar','eraplus','so','k_9','bb_9','whip']
+const PITCHING_RADAR = ['bwar','eraplus','k_9','bb_9','whip','so']
 const BATTING_BARS   = ['bwar','opsplus','hr','rbi','avg','ops']
-const PITCHING_BARS  = ['bwar','eraplus','era','so','whip','fip']
+const PITCHING_BARS  = ['bwar','eraplus','era','so','whip','k_9','bb_9']
 
 const RADAR_LABELS = {
   bwar: 'bWAR', opsplus: 'OPS+', hr: 'HR', sb: 'SB', bb_pct: 'BB%',
@@ -27,7 +27,7 @@ const RADAR_LABELS = {
 }
 
 // Lower is better for these stats
-const INVERSE = new Set(['era','whip','fip','bb_9','k_pct'])
+const INVERSE = new Set(['era','whip','fip','bb_9','k_pct','bb_pct'])
 
 function fmt(v, k) {
   if (v === null || v === undefined) return '—'
