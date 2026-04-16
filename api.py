@@ -87,17 +87,21 @@ def search_players(q: str = Query(..., min_length=2)):
     conn = get_db()
     try:
         batters = conn.execute("""
-            SELECT DISTINCT b.name, b.mlbam_id, MAX(b.season) last_season, p.headshot
+            SELECT DISTINCT b.name, b.mlbam_id, MAX(b.season) last_season,
+                   COALESCE(p1.headshot, p2.headshot) headshot
             FROM batting b
-            LEFT JOIN player p ON b.mlbam_id = p.mlbam_id
+            LEFT JOIN player p1 ON b.mlbam_id = p1.mlbam_id AND b.mlbam_id IS NOT NULL
+            LEFT JOIN player p2 ON LOWER(b.name) = LOWER(p2.name) AND b.mlbam_id IS NULL
             WHERE LOWER(b.name) LIKE LOWER(?)
             GROUP BY b.name ORDER BY last_season DESC LIMIT 10
         """, (f"%{q}%",)).fetchall()
 
         pitchers = conn.execute("""
-            SELECT DISTINCT pt.name, pt.mlbam_id, MAX(pt.season) last_season, p.headshot
+            SELECT DISTINCT pt.name, pt.mlbam_id, MAX(pt.season) last_season,
+                   COALESCE(p1.headshot, p2.headshot) headshot
             FROM pitching pt
-            LEFT JOIN player p ON pt.mlbam_id = p.mlbam_id
+            LEFT JOIN player p1 ON pt.mlbam_id = p1.mlbam_id AND pt.mlbam_id IS NOT NULL
+            LEFT JOIN player p2 ON LOWER(pt.name) = LOWER(p2.name) AND pt.mlbam_id IS NULL
             WHERE LOWER(pt.name) LIKE LOWER(?)
               AND pt.name NOT IN (SELECT DISTINCT name FROM batting WHERE LOWER(name) LIKE LOWER(?))
             GROUP BY pt.name ORDER BY last_season DESC LIMIT 5
@@ -127,7 +131,7 @@ def career_batting(name: str = Query(...)):
                    b.doubles, b.triples, b.r, b.hbp,
                    b.mlbam_id, p.headshot
             FROM batting b
-            LEFT JOIN player p ON b.mlbam_id = p.mlbam_id
+            LEFT JOIN player p ON LOWER(p.name) = LOWER(b.name)
             WHERE LOWER(b.name) = LOWER(?)
             ORDER BY b.season
         """, (name,)).fetchall()
@@ -140,7 +144,7 @@ def career_batting(name: str = Query(...)):
                        b.k_pct, b.bb_pct, b.doubles, b.triples, b.r, b.hbp,
                        b.mlbam_id, p.headshot
                 FROM batting b
-                LEFT JOIN player p ON b.mlbam_id = p.mlbam_id
+                LEFT JOIN player p ON LOWER(p.name) = LOWER(b.name)
                 WHERE LOWER(b.name) LIKE LOWER(?)
                 ORDER BY b.season LIMIT 200
             """, (f"%{name}%",)).fetchall()
@@ -176,15 +180,10 @@ def career_pitching(name: str = Query(...)):
         rows = conn.execute("""
             SELECT p.season, p.team, p.age, p.w, p.l, p.g, p.gs, p.sv, p.hld,
                    p.ip, p.h, p.er, p.hr, p.bb, p.so, p.era, p.whip,
-                   p.bwar, p.eraplus, p.fip,
-                   CASE WHEN p.ip > 0 THEN ROUND(CAST(p.so AS REAL)/p.ip*9, 2)
-                        ELSE NULL END k_9,
-                   CASE WHEN p.ip > 0 THEN ROUND(CAST(p.bb AS REAL)/p.ip*9, 2)
-                        ELSE NULL END bb_9,
-                   p.k_pct, p.bb_pct,
+                   p.bwar, p.eraplus, p.fip, p.k_9, p.bb_9, p.k_pct, p.bb_pct,
                    p.xera, p.mlbam_id, pl.headshot
             FROM pitching p
-            LEFT JOIN player pl ON p.mlbam_id = pl.mlbam_id
+            LEFT JOIN player pl ON LOWER(pl.name) = LOWER(p.name)
             WHERE LOWER(p.name) = LOWER(?)
             ORDER BY p.season
         """, (name,)).fetchall()
@@ -193,15 +192,10 @@ def career_pitching(name: str = Query(...)):
             rows = conn.execute("""
                 SELECT p.season, p.team, p.age, p.w, p.l, p.g, p.gs, p.sv, p.hld,
                        p.ip, p.h, p.er, p.hr, p.bb, p.so, p.era, p.whip,
-                       p.bwar, p.eraplus, p.fip,
-                       CASE WHEN p.ip > 0 THEN ROUND(CAST(p.so AS REAL)/p.ip*9, 2)
-                            ELSE NULL END k_9,
-                       CASE WHEN p.ip > 0 THEN ROUND(CAST(p.bb AS REAL)/p.ip*9, 2)
-                            ELSE NULL END bb_9,
-                       p.k_pct, p.bb_pct,
+                       p.bwar, p.eraplus, p.fip, p.k_9, p.bb_9, p.k_pct, p.bb_pct,
                        p.xera, p.mlbam_id, pl.headshot
                 FROM pitching p
-                LEFT JOIN player pl ON p.mlbam_id = pl.mlbam_id
+                LEFT JOIN player pl ON LOWER(pl.name) = LOWER(p.name)
                 WHERE LOWER(p.name) LIKE LOWER(?)
                 ORDER BY p.season LIMIT 200
             """, (f"%{name}%",)).fetchall()
@@ -410,21 +404,7 @@ def compare(
                     row = conn.execute("""
                         SELECT p.name, SUM(p.w) w, SUM(p.sv) sv, SUM(p.g) g,
                                SUM(p.gs) gs, SUM(p.so) so, SUM(p.bb) bb,
-                               SUM(p.er) er, SUM(p.h) h,
-                               ROUND(SUM(p.ip),1) ip,
-                               ROUND(SUM(p.bwar),1) bwar,
-                               ROUND(SUM(p.er)*9.0/NULLIF(SUM(p.ip),0), 2) era,
-                               ROUND(
-                                 SUM(COALESCE(p.eraplus,100)*COALESCE(p.ip,0)) /
-                                 NULLIF(SUM(CASE WHEN p.eraplus IS NOT NULL THEN COALESCE(p.ip,0) ELSE 0 END),0)
-                               ) eraplus,
-                               ROUND((SUM(p.h)+SUM(p.bb))*1.0/NULLIF(SUM(p.ip),0), 3) whip,
-                               CASE WHEN SUM(p.ip) > 0
-                                    THEN ROUND(SUM(p.so)*9.0/SUM(p.ip), 2)
-                                    ELSE NULL END k_9,
-                               CASE WHEN SUM(p.ip) > 0
-                                    THEN ROUND(SUM(p.bb)*9.0/SUM(p.ip), 2)
-                                    ELSE NULL END bb_9,
+                               ROUND(SUM(p.ip),1) ip, ROUND(SUM(p.bwar),1) bwar,
                                p.mlbam_id, pl.headshot
                         FROM pitching p
                         LEFT JOIN player pl ON p.mlbam_id = pl.mlbam_id
