@@ -176,7 +176,12 @@ def career_pitching(name: str = Query(...)):
         rows = conn.execute("""
             SELECT p.season, p.team, p.age, p.w, p.l, p.g, p.gs, p.sv, p.hld,
                    p.ip, p.h, p.er, p.hr, p.bb, p.so, p.era, p.whip,
-                   p.bwar, p.eraplus, p.fip, p.k_9, p.bb_9, p.k_pct, p.bb_pct,
+                   p.bwar, p.eraplus, p.fip,
+                   CASE WHEN p.ip > 0 THEN ROUND(CAST(p.so AS REAL)/p.ip*9, 2)
+                        ELSE NULL END k_9,
+                   CASE WHEN p.ip > 0 THEN ROUND(CAST(p.bb AS REAL)/p.ip*9, 2)
+                        ELSE NULL END bb_9,
+                   p.k_pct, p.bb_pct,
                    p.xera, p.mlbam_id, pl.headshot
             FROM pitching p
             LEFT JOIN player pl ON p.mlbam_id = pl.mlbam_id
@@ -188,7 +193,12 @@ def career_pitching(name: str = Query(...)):
             rows = conn.execute("""
                 SELECT p.season, p.team, p.age, p.w, p.l, p.g, p.gs, p.sv, p.hld,
                        p.ip, p.h, p.er, p.hr, p.bb, p.so, p.era, p.whip,
-                       p.bwar, p.eraplus, p.fip, p.k_9, p.bb_9, p.k_pct, p.bb_pct,
+                       p.bwar, p.eraplus, p.fip,
+                       CASE WHEN p.ip > 0 THEN ROUND(CAST(p.so AS REAL)/p.ip*9, 2)
+                            ELSE NULL END k_9,
+                       CASE WHEN p.ip > 0 THEN ROUND(CAST(p.bb AS REAL)/p.ip*9, 2)
+                            ELSE NULL END bb_9,
+                       p.k_pct, p.bb_pct,
                        p.xera, p.mlbam_id, pl.headshot
                 FROM pitching p
                 LEFT JOIN player pl ON p.mlbam_id = pl.mlbam_id
@@ -400,7 +410,20 @@ def compare(
                     row = conn.execute("""
                         SELECT p.name, SUM(p.w) w, SUM(p.sv) sv, SUM(p.g) g,
                                SUM(p.gs) gs, SUM(p.so) so, SUM(p.bb) bb,
-                               ROUND(SUM(p.ip),1) ip, ROUND(SUM(p.bwar),1) bwar,
+                               SUM(p.er) er,
+                               ROUND(SUM(p.ip),1) ip,
+                               ROUND(SUM(p.bwar),1) bwar,
+                               ROUND(SUM(p.er)*9.0/NULLIF(SUM(p.ip),0), 2) era,
+                               ROUND(
+                                 SUM(COALESCE(p.eraplus,100)*COALESCE(p.ip,0)) /
+                                 NULLIF(SUM(CASE WHEN p.eraplus IS NOT NULL THEN COALESCE(p.ip,0) ELSE 0 END),0)
+                               ) eraplus,
+                               CASE WHEN SUM(p.ip) > 0
+                                    THEN ROUND(SUM(p.so)*9.0/SUM(p.ip), 2)
+                                    ELSE NULL END k_9,
+                               CASE WHEN SUM(p.ip) > 0
+                                    THEN ROUND(SUM(p.bb)*9.0/SUM(p.ip), 2)
+                                    ELSE NULL END bb_9,
                                p.mlbam_id, pl.headshot
                         FROM pitching p
                         LEFT JOIN player pl ON p.mlbam_id = pl.mlbam_id
