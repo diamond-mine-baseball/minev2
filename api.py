@@ -131,7 +131,8 @@ def career_batting(name: str = Query(...)):
                    b.doubles, b.triples, b.r, b.hbp,
                    b.mlbam_id, p.headshot
             FROM batting b
-            LEFT JOIN player p ON LOWER(p.name) = LOWER(b.name)
+            LEFT JOIN player p ON (b.mlbam_id IS NOT NULL AND b.mlbam_id = p.mlbam_id)
+                          OR (b.mlbam_id IS NULL AND LOWER(p.name) = LOWER(b.name))
             WHERE LOWER(b.name) = LOWER(?)
             ORDER BY b.season
         """, (name,)).fetchall()
@@ -144,7 +145,8 @@ def career_batting(name: str = Query(...)):
                        b.k_pct, b.bb_pct, b.doubles, b.triples, b.r, b.hbp,
                        b.mlbam_id, p.headshot
                 FROM batting b
-                LEFT JOIN player p ON LOWER(p.name) = LOWER(b.name)
+                LEFT JOIN player p ON (b.mlbam_id IS NOT NULL AND b.mlbam_id = p.mlbam_id)
+                          OR (b.mlbam_id IS NULL AND LOWER(p.name) = LOWER(b.name))
                 WHERE LOWER(b.name) LIKE LOWER(?)
                 ORDER BY b.season LIMIT 200
             """, (f"%{name}%",)).fetchall()
@@ -183,7 +185,8 @@ def career_pitching(name: str = Query(...)):
                    p.bwar, p.eraplus, p.fip, p.k_9, p.bb_9, p.k_pct, p.bb_pct,
                    p.xera, p.mlbam_id, pl.headshot
             FROM pitching p
-            LEFT JOIN player pl ON LOWER(pl.name) = LOWER(p.name)
+            LEFT JOIN player pl ON (p.mlbam_id IS NOT NULL AND p.mlbam_id = pl.mlbam_id)
+                           OR (p.mlbam_id IS NULL AND LOWER(pl.name) = LOWER(p.name))
             WHERE LOWER(p.name) = LOWER(?)
             ORDER BY p.season
         """, (name,)).fetchall()
@@ -195,7 +198,8 @@ def career_pitching(name: str = Query(...)):
                        p.bwar, p.eraplus, p.fip, p.k_9, p.bb_9, p.k_pct, p.bb_pct,
                        p.xera, p.mlbam_id, pl.headshot
                 FROM pitching p
-                LEFT JOIN player pl ON LOWER(pl.name) = LOWER(p.name)
+                LEFT JOIN player pl ON (p.mlbam_id IS NOT NULL AND p.mlbam_id = pl.mlbam_id)
+                           OR (p.mlbam_id IS NULL AND LOWER(pl.name) = LOWER(p.name))
                 WHERE LOWER(p.name) LIKE LOWER(?)
                 ORDER BY p.season LIMIT 200
             """, (f"%{name}%",)).fetchall()
@@ -380,7 +384,8 @@ def compare(
                                 NULLIF(SUM(CASE WHEN b.opsplus IS NOT NULL THEN COALESCE(b.pa,0) ELSE 0 END),0)) opsplus,
                             b.mlbam_id, p.headshot
                         FROM batting b
-                        LEFT JOIN player p ON b.mlbam_id = p.mlbam_id
+                        LEFT JOIN player p ON (b.mlbam_id IS NOT NULL AND b.mlbam_id = p.mlbam_id)
+                                      OR (b.mlbam_id IS NULL AND LOWER(p.name) = LOWER(b.name))
                         WHERE LOWER(b.name) = LOWER(?) GROUP BY b.name
                     """, (name,)).fetchone()
                     row = dict(r) if r else None
@@ -407,7 +412,8 @@ def compare(
                                ROUND(SUM(p.ip),1) ip, ROUND(SUM(p.bwar),1) bwar,
                                p.mlbam_id, pl.headshot
                         FROM pitching p
-                        LEFT JOIN player pl ON p.mlbam_id = pl.mlbam_id
+                        LEFT JOIN player pl ON (p.mlbam_id IS NOT NULL AND p.mlbam_id = pl.mlbam_id)
+                                       OR (p.mlbam_id IS NULL AND LOWER(pl.name) = LOWER(p.name))
                         WHERE LOWER(p.name) = LOWER(?) GROUP BY p.name
                     """, (name,)).fetchone()
 
