@@ -183,9 +183,21 @@ export default function PlayerCareer() {
                   <StatBadge label="HR"           value={data.totals?.hr} />
                   <StatBadge label="RBI"          value={data.totals?.rbi} />
                   <StatBadge label="AVG"          value={data.totals?.avg?.toFixed(3)?.replace(/^0/, '')} />
-                  <StatBadge label="OPS"          value={Number(
+                  <StatBadge label="OBP"          value={Number(
                     ((data.totals?.h || 0) + (data.totals?.bb || 0)) /
                     Math.max((data.totals?.ab || 0) + (data.totals?.bb || 0), 1)
+                  ).toFixed(3).replace(/^0/, '')} />
+                  <StatBadge label="SLG"          value={Number(
+                    ((data.totals?.h || 0) - (data.totals?.doubles || 0) - (data.totals?.triples || 0) - (data.totals?.hr || 0)
+                      + 2*(data.totals?.doubles || 0) + 3*(data.totals?.triples || 0) + 4*(data.totals?.hr || 0)) /
+                    Math.max(data.totals?.ab || 0, 1)
+                  ).toFixed(3).replace(/^0/, '')} />
+                  <StatBadge label="OPS"          value={Number(
+                    ((data.totals?.h || 0) + (data.totals?.bb || 0)) /
+                    Math.max((data.totals?.ab || 0) + (data.totals?.bb || 0), 1) +
+                    ((data.totals?.h || 0) - (data.totals?.doubles || 0) - (data.totals?.triples || 0) - (data.totals?.hr || 0)
+                      + 2*(data.totals?.doubles || 0) + 3*(data.totals?.triples || 0) + 4*(data.totals?.hr || 0)) /
+                    Math.max(data.totals?.ab || 0, 1)
                   ).toFixed(3).replace(/^0/, '')} />
                 </>
               ) : (
