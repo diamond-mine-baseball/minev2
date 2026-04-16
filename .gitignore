@@ -1,0 +1,10 @@
+# DB and data files — upload separately to Railway volume
+*.db
+*.sqlite
+data/
+__pycache__/
+*.pyc
+.env
+node_modules/
+dist/
+.DS_Store

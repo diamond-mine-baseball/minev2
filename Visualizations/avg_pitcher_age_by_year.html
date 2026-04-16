@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Average Age of an MLB Pitcher by Year</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #111115;
+    color: #e8e6e0;
+    font-family: 'IBM Plex Sans', sans-serif;
+    min-height: 100vh;
+    padding: 48px 24px 80px;
+  }
+  .page { max-width: 900px; margin: 0 auto; }
+  .masthead { margin-bottom: 40px; border-left: 3px solid #c8952a; padding-left: 20px; }
+  .masthead-eyebrow { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .12em; color: #c8952a; text-transform: uppercase; margin-bottom: 10px; }
+  .masthead-title { font-family: 'Playfair Display', serif; font-size: 36px; font-weight: 900; color: #f0ede6; line-height: 1.15; margin-bottom: 10px; }
+  .masthead-sub { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #6b6a66; letter-spacing: .04em; }
+  .chart-wrap { position: relative; width: 100%; height: 480px; margin-bottom: 24px; }
+  .tooltip {
+    position: absolute;
+    background: #1c1c22;
+    border: 1px solid #2a2a30;
+    border-radius: 6px;
+    padding: 10px 14px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .15s;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: #e0ddd6;
+    white-space: nowrap;
+    z-index: 10;
+  }
+  .tt-year { font-size: 11px; color: #6b6a66; margin-bottom: 4px; }
+  .tt-age  { font-size: 18px; font-weight: 500; color: #c8952a; margin-bottom: 2px; }
+  .tt-n    { font-size: 11px; color: #4a4a50; }
+  .legend {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 8px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: #4a4a50;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot  { width: 8px; height: 8px; border-radius: 50%; }
+  .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #1e1e24; font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #3a3a42; letter-spacing: .04em; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="masthead">
+    <div class="masthead-eyebrow">MLB Pitchers · Min. 30 IP · 1947–2025</div>
+    <div class="masthead-title">Average Age of an MLB Pitcher</div>
+    <div class="masthead-sub">By season · Qualified pitchers only · Bars = pitcher count</div>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#c8952a"></div>avg age (left axis)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:rgba(74,139,191,0.4);border-radius:2px"></div>qualified pitchers (right axis)</div>
+  </div>
+
+  <div class="chart-wrap">
+    <canvas id="chart"></canvas>
+    <div class="tooltip" id="tooltip">
+      <div class="tt-year" id="tt-year"></div>
+      <div class="tt-age"  id="tt-age"></div>
+      <div class="tt-n"    id="tt-n"></div>
+    </div>
+  </div>
+
+  <div class="footer">Source: FanGraphs via baseball.db · Min. 30 IP · Average age of all qualified pitchers per season</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const raw = [
+  {y:1947,age:29.71,n:212},{y:1948,age:29.12,n:202},{y:1949,age:28.77,n:154},
+  {y:1950,age:28.67,n:156},{y:1951,age:28.80,n:160},{y:1952,age:29.29,n:169},
+  {y:1953,age:29.15,n:161},{y:1954,age:28.47,n:161},{y:1955,age:28.12,n:173},
+  {y:1956,age:28.63,n:168},{y:1957,age:27.95,n:165},{y:1958,age:28.05,n:166},
+  {y:1959,age:28.09,n:161},{y:1960,age:27.49,n:171},{y:1961,age:27.78,n:183},
+  {y:1962,age:27.90,n:221},{y:1963,age:28.02,n:208},{y:1964,age:27.76,n:223},
+  {y:1965,age:27.77,n:216},{y:1966,age:27.62,n:220},{y:1967,age:27.35,n:224},
+  {y:1968,age:27.31,n:213},{y:1969,age:27.36,n:256},{y:1970,age:27.09,n:261},
+  {y:1971,age:27.19,n:258},{y:1972,age:27.16,n:250},{y:1973,age:27.32,n:245},
+  {y:1974,age:27.45,n:249},{y:1975,age:27.53,n:256},{y:1976,age:27.46,n:252},
+  {y:1977,age:27.17,n:278},{y:1978,age:27.48,n:273},{y:1979,age:27.46,n:291},
+  {y:1980,age:27.76,n:287},{y:1981,age:28.21,n:267},{y:1982,age:28.26,n:290},
+  {y:1983,age:28.31,n:296},{y:1984,age:28.11,n:291},{y:1985,age:28.32,n:304},
+  {y:1986,age:28.21,n:302},{y:1987,age:28.12,n:307},{y:1988,age:28.43,n:295},
+  {y:1989,age:28.48,n:312},{y:1990,age:28.15,n:321},{y:1991,age:28.29,n:325},
+  {y:1992,age:28.49,n:331},{y:1993,age:28.20,n:362},{y:1994,age:28.65,n:315},
+  {y:1995,age:28.30,n:356},{y:1996,age:28.18,n:363},{y:1997,age:28.21,n:366},
+  {y:1998,age:28.66,n:378},{y:1999,age:28.58,n:391},{y:2000,age:28.66,n:388},
+  {y:2001,age:28.62,n:401},{y:2002,age:28.68,n:408},{y:2003,age:28.75,n:409},
+  {y:2004,age:28.94,n:407},{y:2005,age:29.09,n:401},{y:2006,age:28.39,n:419},
+  {y:2007,age:28.70,n:430},{y:2008,age:28.63,n:426},{y:2009,age:28.32,n:434},
+  {y:2010,age:28.46,n:410},{y:2011,age:28.27,n:406},{y:2012,age:28.37,n:427},
+  {y:2013,age:28.25,n:432},{y:2014,age:28.33,n:415},{y:2015,age:28.26,n:439},
+  {y:2016,age:28.18,n:439},{y:2017,age:28.48,n:462},{y:2018,age:28.34,n:468},
+  {y:2019,age:28.26,n:457},{y:2020,age:28.01,n:158},{y:2021,age:28.64,n:471},
+  {y:2022,age:28.60,n:469},{y:2023,age:28.78,n:476},{y:2024,age:28.95,n:474},
+  {y:2025,age:28.91,n:475},
+];
+
+const labels = raw.map(d => d.y);
+const ages   = raw.map(d => d.age);
+const counts = raw.map(d => d.n);
+const maxAge = Math.max(...ages);
+const minAge = Math.min(...ages);
+
+const ctx = document.getElementById('chart').getContext('2d');
+
+const gradient = ctx.createLinearGradient(0, 0, 0, 480);
+gradient.addColorStop(0, 'rgba(200,149,42,0.2)');
+gradient.addColorStop(1, 'rgba(200,149,42,0.0)');
+
+const pointColors = ages.map(a =>
+  a === maxAge ? '#c8952a' : a === minAge ? '#4a8bbf' : 'transparent'
+);
+const pointRadius = ages.map(a =>
+  a === maxAge || a === minAge ? 6 : 0
+);
+
+const eraPlugin = {
+  id: 'eraShading',
+  beforeDraw(chart) {
+    const xScale = chart.scales.x;
+    const yScale = chart.scales.y;
+    const ctx2   = chart.ctx;
+    const eras = [
+      { start: 1960, end: 1980, color: 'rgba(74,139,191,0.06)', label: 'Young arms era' },
+      { start: 1981, end: 1992, color: 'rgba(200,149,42,0.05)', label: 'Aging up' },
+      { start: 2003, end: 2006, color: 'rgba(200,149,42,0.06)', label: 'Steroid era peak' },
+    ];
+    eras.forEach(era => {
+      const i1 = labels.indexOf(era.start);
+      const i2 = labels.indexOf(era.end);
+      if (i1 < 0 || i2 < 0) return;
+      const x1 = xScale.getPixelForValue(i1);
+      const x2 = xScale.getPixelForValue(i2);
+      ctx2.save();
+      ctx2.fillStyle = era.color;
+      ctx2.fillRect(x1, yScale.top, x2 - x1, yScale.bottom - yScale.top);
+      ctx2.font = "500 9px 'IBM Plex Mono'";
+      ctx2.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx2.textAlign = 'center';
+      ctx2.fillText(era.label, (x1 + x2) / 2, yScale.top + 12);
+      ctx2.restore();
+    });
+  }
+};
+
+Chart.register(eraPlugin);
+
+const chart = new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels,
+    datasets: [
+      {
+        type: 'bar',
+        data: counts,
+        backgroundColor: 'rgba(74,139,191,0.1)',
+        borderColor: 'rgba(74,139,191,0.2)',
+        borderWidth: 1,
+        borderRadius: 2,
+        yAxisID: 'yN',
+        xAxisID: 'x',
+        order: 2,
+        categoryPercentage: 1.0,
+        barPercentage: 1.0,
+      },
+      {
+        type: 'line',
+        data: ages,
+        borderColor: '#c8952a',
+        borderWidth: 2,
+        backgroundColor: gradient,
+        fill: true,
+        tension: 0.3,
+        pointBackgroundColor: pointColors,
+        pointBorderColor: pointColors,
+        pointRadius: pointRadius,
+        pointHoverRadius: 6,
+        pointHoverBackgroundColor: '#c8952a',
+        pointHoverBorderColor: '#f0ede6',
+        pointHoverBorderWidth: 2,
+        yAxisID: 'y',
+        xAxisID: 'x',
+        order: 1,
+      },
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 1400, easing: 'easeInOutQuart' },
+    plugins: {
+      legend: { display: false },
+      tooltip: { enabled: false },
+    },
+    scales: {
+      x: {
+        offset: false,
+        grid: { color: 'rgba(255,255,255,0.04)' },
+        border: { color: '#2a2a30' },
+        title: {
+          display: true,
+          text: 'Season',
+          color: '#4a4a50',
+          font: { family: "'IBM Plex Mono'", size: 11 },
+          padding: { top: 8 },
+        },
+        ticks: {
+          color: '#4a4a50',
+          font: { family: "'IBM Plex Mono'", size: 11 },
+          maxRotation: 0,
+          autoSkip: true,
+          maxTicksLimit: 16,
+        }
+      },
+      y: {
+        min: 26.5,
+        max: 30.3,
+        position: 'left',
+        grid: { color: 'rgba(255,255,255,0.04)' },
+        border: { color: '#2a2a30', dash: [4,4] },
+        ticks: {
+          color: '#4a4a50',
+          font: { family: "'IBM Plex Mono'", size: 11 },
+          callback: v => v.toFixed(1),
+          stepSize: 0.2,
+        }
+      },
+      yN: {
+        min: 0,
+        max: 700,
+        position: 'right',
+        grid: { display: false },
+        border: { color: '#2a2a30' },
+        ticks: {
+          color: '#2e3d4a',
+          font: { family: "'IBM Plex Mono'", size: 11 },
+          callback: v => v.toLocaleString(),
+          stepSize: 100,
+        }
+      }
+    },
+    interaction: { mode: 'index', intersect: false },
+    onHover: (e, elements) => {
+      const tooltip = document.getElementById('tooltip');
+      if (!elements.length) { tooltip.style.opacity = 0; return; }
+      const idx = elements[0].index;
+      const d   = raw[idx];
+      document.getElementById('tt-year').textContent = d.y;
+      document.getElementById('tt-age').textContent  = d.age.toFixed(2) + ' yrs';
+      document.getElementById('tt-n').textContent    = 'n = ' + d.n.toLocaleString() + ' qualified pitchers';
+      const rect    = e.chart.canvas.getBoundingClientRect();
+      const canvasX = e.native.clientX - rect.left;
+      const canvasY = e.native.clientY - rect.top;
+      const tipW    = 210;
+      const left    = canvasX + tipW + 20 > rect.width ? canvasX - tipW - 10 : canvasX + 14;
+      tooltip.style.left    = left + 'px';
+      tooltip.style.top     = (canvasY - 20) + 'px';
+      tooltip.style.opacity = 1;
+    }
+  }
+});
+</script>
+</body>
+</html>

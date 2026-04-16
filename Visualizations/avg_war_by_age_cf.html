@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Average WAR by Age — Center Fielders</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #111115;
+    color: #e8e6e0;
+    font-family: 'IBM Plex Sans', sans-serif;
+    min-height: 100vh;
+    padding: 48px 24px 80px;
+  }
+  .page { max-width: 860px; margin: 0 auto; }
+  .masthead { margin-bottom: 40px; border-left: 3px solid #c8952a; padding-left: 20px; }
+  .masthead-eyebrow { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .12em; color: #c8952a; text-transform: uppercase; margin-bottom: 10px; }
+  .masthead-title { font-family: 'Playfair Display', serif; font-size: 36px; font-weight: 900; color: #f0ede6; line-height: 1.15; margin-bottom: 10px; }
+  .masthead-sub { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #6b6a66; letter-spacing: .04em; }
+  .chart-wrap { position: relative; width: 100%; height: 420px; margin-bottom: 24px; }
+  .tooltip {
+    position: absolute;
+    background: #1c1c22;
+    border: 1px solid #2a2a30;
+    border-radius: 6px;
+    padding: 10px 14px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .15s;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: #e0ddd6;
+    white-space: nowrap;
+    z-index: 10;
+  }
+  .tooltip .tt-age { font-size: 11px; color: #6b6a66; margin-bottom: 4px; }
+  .tooltip .tt-war { font-size: 18px; font-weight: 500; color: #c8952a; margin-bottom: 2px; }
+  .tooltip .tt-n { font-size: 11px; color: #4a4a50; }
+  .legend {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 8px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: #4a4a50;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #1e1e24; font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #3a3a42; letter-spacing: .04em; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="masthead">
+    <div class="masthead-eyebrow">Center Fielders · Min. 300 PA · All Seasons</div>
+    <div class="masthead-title">Average WAR by Age</div>
+    <div class="masthead-sub">Ages 19–40 · Qualified center fielders only · Bars = player-seasons at each age</div>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#c8952a"></div>avg WAR (left axis)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:rgba(74,139,191,0.4);border-radius:2px"></div>player-seasons (right axis)</div>
+  </div>
+
+  <div class="chart-wrap">
+    <canvas id="chart"></canvas>
+    <div class="tooltip" id="tooltip">
+      <div class="tt-age" id="tt-age"></div>
+      <div class="tt-war" id="tt-war"></div>
+      <div class="tt-n" id="tt-n"></div>
+    </div>
+  </div>
+
+  <div class="footer">Source: FanGraphs via baseball.db · Qualified = min. 300 PA · Position from fielding table · n = number of player-seasons at each age</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const raw = [
+  {age:19, war:2.16, n:5},
+  {age:20, war:2.60, n:18},
+  {age:21, war:2.32, n:54},
+  {age:22, war:2.31, n:123},
+  {age:23, war:2.02, n:227},
+  {age:24, war:2.28, n:298},
+  {age:25, war:2.25, n:369},
+  {age:26, war:2.42, n:423},
+  {age:27, war:2.32, n:400},
+  {age:28, war:2.25, n:364},
+  {age:29, war:2.17, n:335},
+  {age:30, war:2.07, n:302},
+  {age:31, war:2.11, n:248},
+  {age:32, war:2.16, n:180},
+  {age:33, war:1.78, n:138},
+  {age:34, war:1.75, n:96},
+  {age:35, war:1.80, n:62},
+  {age:36, war:1.53, n:40},
+  {age:37, war:1.76, n:29},
+  {age:38, war:1.38, n:20},
+  {age:39, war:1.81, n:7},
+  {age:40, war:1.52, n:9},
+];
+
+const labels = raw.map(d => d.age);
+const values = raw.map(d => d.war);
+const counts = raw.map(d => d.n);
+const maxWar = Math.max(...values);
+
+const pointColors = raw.map(d => d.war === maxWar ? '#c8952a' : '#4a8bbf');
+const pointRadius = raw.map(d => d.war === maxWar ? 7 : 4);
+const pointHoverRadius = raw.map(d => d.war === maxWar ? 10 : 7);
+
+const ctx = document.getElementById('chart').getContext('2d');
+
+const gradient = ctx.createLinearGradient(0, 0, 0, 420);
+gradient.addColorStop(0, 'rgba(200,149,42,0.18)');
+gradient.addColorStop(1, 'rgba(200,149,42,0.0)');
+
+const chart = new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels,
+    datasets: [
+      {
+        type: 'bar',
+        data: counts,
+        backgroundColor: 'rgba(74,139,191,0.15)',
+        borderColor: 'rgba(74,139,191,0.35)',
+        borderWidth: 1,
+        borderRadius: 3,
+        yAxisID: 'yN',
+        xAxisID: 'x',
+        order: 2,
+        categoryPercentage: 1.0,
+        barPercentage: 1.0,
+      },
+      {
+        type: 'line',
+        data: values,
+        borderColor: '#c8952a',
+        borderWidth: 2.5,
+        backgroundColor: gradient,
+        fill: true,
+        tension: 0.35,
+        pointBackgroundColor: pointColors,
+        pointBorderColor: pointColors,
+        pointRadius: pointRadius,
+        pointHoverRadius: pointHoverRadius,
+        pointHoverBackgroundColor: '#c8952a',
+        pointHoverBorderColor: '#f0ede6',
+        pointHoverBorderWidth: 2,
+        yAxisID: 'y',
+        xAxisID: 'x',
+        order: 1,
+      },
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 1200, easing: 'easeInOutQuart' },
+    plugins: {
+      legend: { display: false },
+      tooltip: { enabled: false },
+    },
+    scales: {
+      x: {
+        offset: false,
+        grid: { color: 'rgba(255,255,255,0.04)' },
+        border: { color: '#2a2a30' },
+        title: {
+          display: true,
+          text: 'Player Age',
+          color: '#4a4a50',
+          font: { family: "'IBM Plex Mono'", size: 11 },
+          padding: { top: 8 },
+        },
+        ticks: {
+          color: '#4a4a50',
+          font: { family: "'IBM Plex Mono'", size: 11 },
+          callback: v => labels[v],
+          maxRotation: 0,
+          autoSkip: false,
+        }
+      },
+      y: {
+        min: 0.8,
+        max: 3.1,
+        position: 'left',
+        grid: { color: 'rgba(255,255,255,0.04)' },
+        border: { color: '#2a2a30', dash: [4,4] },
+        ticks: {
+          color: '#4a4a50',
+          font: { family: "'IBM Plex Mono'", size: 11 },
+          callback: v => v.toFixed(1) + ' WAR',
+          stepSize: 0.2,
+        }
+      },
+      yN: {
+        min: 0,
+        max: Math.ceil(Math.max(...counts) * 1.3 / 100) * 100,
+        position: 'right',
+        grid: { display: false },
+        border: { color: '#2a2a30' },
+        ticks: {
+          color: '#2e3d4a',
+          font: { family: "'IBM Plex Mono'", size: 11 },
+          callback: v => v.toLocaleString(),
+          stepSize: 100,
+        }
+      }
+    },
+    interaction: { mode: 'index', intersect: false },
+    onHover: (e, elements) => {
+      const tooltip = document.getElementById('tooltip');
+      if (!elements.length) { tooltip.style.opacity = 0; return; }
+      const idx = elements[0].index;
+      const d   = raw[idx];
+      document.getElementById('tt-age').textContent = 'Age ' + d.age;
+      document.getElementById('tt-war').textContent = d.war.toFixed(2) + ' WAR';
+      document.getElementById('tt-n').textContent   = 'n = ' + d.n.toLocaleString() + ' player-seasons';
+      const rect    = e.chart.canvas.getBoundingClientRect();
+      const canvasX = e.native.clientX - rect.left;
+      const canvasY = e.native.clientY - rect.top;
+      tooltip.style.left    = (canvasX + 14) + 'px';
+      tooltip.style.top     = (canvasY - 20) + 'px';
+      tooltip.style.opacity = 1;
+    }
+  }
+});
+
+const peakPlugin = {
+  id: 'peakLine',
+  afterDraw(chart) {
+    const idx  = raw.findIndex(d => d.war === maxWar);
+    const x    = chart.scales.x.getPixelForValue(idx);
+    const top  = chart.scales.y.top;
+    const bot  = chart.scales.y.bottom;
+    const ctx2 = chart.ctx;
+    ctx2.save();
+    ctx2.beginPath();
+    ctx2.setLineDash([4, 4]);
+    ctx2.strokeStyle = 'rgba(200,149,42,0.3)';
+    ctx2.lineWidth = 1;
+    ctx2.moveTo(x, top);
+    ctx2.lineTo(x, bot);
+    ctx2.stroke();
+    ctx2.setLineDash([]);
+    ctx2.font = "500 10px 'IBM Plex Mono'";
+    ctx2.fillStyle = '#c8952a';
+    ctx2.textAlign = 'center';
+    ctx2.fillText('PEAK', x, top - 6);
+    ctx2.restore();
+  }
+};
+
+Chart.register(peakPlugin);
+chart.update();
+</script>
+</body>
+</html>

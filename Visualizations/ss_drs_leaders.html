@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Top 10 SS DRS Seasons</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #0a0c08;
+  font-family: 'DM Mono', monospace;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 40px;
+}
+
+.outer {
+  width: 100%;
+  max-width: 860px;
+}
+
+.header {
+  margin-bottom: 36px;
+  opacity: 0;
+  animation: fadeDown 0.7s ease forwards 0.1s;
+}
+
+.eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  color: #3a5a1a;
+  margin-bottom: 8px;
+}
+
+.title {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: clamp(36px, 5.5vw, 62px);
+  letter-spacing: 0.04em;
+  line-height: 1;
+  color: #C8F135;
+}
+
+.title-sub {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: clamp(18px, 2.5vw, 28px);
+  letter-spacing: 0.06em;
+  color: #4a6a2a;
+  margin-top: 6px;
+}
+
+.col-headers {
+  display: grid;
+  grid-template-columns: 48px 64px 1fr 80px 1fr 56px;
+  gap: 0 12px;
+  padding: 0 16px 10px;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: #2a3a18;
+  border-bottom: 1px solid #1a2410;
+  margin-bottom: 8px;
+  opacity: 0;
+  animation: fadeUp 0.5s ease forwards 0.5s;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 48px 64px 1fr 80px 1fr 56px;
+  gap: 0 12px;
+  align-items: center;
+  padding: 14px 16px;
+  border-radius: 3px;
+  margin-bottom: 6px;
+  background: #0d0f0a;
+  border: 1px solid #161a0e;
+  opacity: 0;
+  transform: translateX(-20px);
+  transition: border-color 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+
+.row::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: transparent;
+  transition: background 0.3s;
+}
+
+.row:hover { border-color: #2a3a18; }
+.row:hover::before { background: #C8F135; }
+
+.row.rank-1 { border-color: #2a4018; }
+.row.rank-1::before { background: #C8F135; }
+.row.rank-2 { border-color: #1e2e14; }
+.row.rank-2::before { background: #7dba2a; }
+.row.rank-3 { border-color: #1a2810; }
+.row.rank-3::before { background: #4a7a18; }
+
+.rank {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 28px;
+  letter-spacing: 0.04em;
+  text-align: center;
+  line-height: 1;
+}
+
+.rank-1 .rank { color: #C8F135; }
+.rank-2 .rank { color: #9ed444; }
+.rank-3 .rank { color: #6aaa22; }
+.rank { color: #2a4020; }
+
+.headshot-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.headshot-circle {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid #1e2a10;
+  flex-shrink: 0;
+  background: #111408;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 16px;
+  color: #3a5a20;
+}
+
+.rank-1 .headshot-circle { border-color: #C8F13560; }
+.rank-2 .headshot-circle { border-color: #9ed44440; }
+.rank-3 .headshot-circle { border-color: #6aaa2240; }
+
+.headshot-circle img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+}
+
+.player-info { min-width: 0; }
+
+.player-name {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 20px;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  color: #d4e89a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rank-1 .player-name { color: #C8F135; }
+
+.player-meta {
+  font-size: 10px;
+  color: #3a5a20;
+  letter-spacing: 0.1em;
+  margin-top: 4px;
+}
+
+.drs-num {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 32px;
+  letter-spacing: 0.02em;
+  text-align: right;
+  line-height: 1;
+}
+
+.rank-1 .drs-num { color: #C8F135; }
+.rank-2 .drs-num { color: #9ed444; }
+.rank-3 .drs-num { color: #7dba2a; }
+.drs-num { color: #4a7a30; }
+
+.bar-wrap {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+.bar-track {
+  width: 100%;
+  height: 6px;
+  background: #111408;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  width: 0%;
+  transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.rank-1 .bar-fill { background: #C8F135; }
+.rank-2 .bar-fill { background: #9ed444; }
+.rank-3 .bar-fill { background: #7dba2a; }
+.bar-fill { background: #3a6018; }
+
+.age-badge {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: #2a4020;
+  text-align: right;
+}
+
+.age-val {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 18px;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  color: #3a6028;
+}
+
+.rank-1 .age-val { color: #7aaa30; }
+.rank-2 .age-val { color: #5a8a24; }
+.rank-3 .age-val { color: #4a7a1e; }
+
+.footer {
+  margin-top: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  opacity: 0;
+  animation: fadeUp 0.5s ease forwards 1.4s;
+}
+
+.footer-note { font-size: 9px; color: #1e2a10; letter-spacing: 0.12em; }
+.logo { font-family: 'Bebas Neue', sans-serif; font-size: 14px; letter-spacing: 0.12em; color: #1e2a10; }
+.logo span { color: #2a4018; }
+
+@keyframes fadeDown {
+  from { opacity: 0; transform: translateY(-12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+</style>
+</head>
+<body>
+<div class="outer">
+
+  <div class="header">
+    <div class="eyebrow">SPORTS INFO SOLUTIONS · DEFENSIVE RUNS SAVED · 2003–2025</div>
+    <div class="title">Top 10 Single-Season DRS</div>
+    <div class="title-sub">Shortstop · Minimum 500 Innings</div>
+  </div>
+
+  <div class="col-headers">
+    <span></span>
+    <span></span>
+    <span>PLAYER</span>
+    <span style="text-align:right">DRS</span>
+    <span style="padding-left:8px">RELATIVE TO LEADER</span>
+    <span style="text-align:right">AGE</span>
+  </div>
+
+  <div id="rows"></div>
+
+  <div class="footer">
+    <div class="footer-note">SOURCE: SPORTS INFO SOLUTIONS · MIN 500 INNINGS AT SS · DIAMONDMINE</div>
+    <div class="logo">DIAMOND<span>MINE</span></div>
+  </div>
+
+</div>
+
+<script>
+const BASE = 'http://localhost:5000';
+const MAX_DRS = 42;
+
+const DATA = [
+  { rank:1,  player:'Andrelton Simmons', season:2017, drs:42, age:27, initials:'AS',
+    headshot:'Andrelton_Simmons_CHN_2022.jpg' },
+  { rank:2,  player:'Adam Everett',      season:2006, drs:34, age:29, initials:'AE',
+    headshot:'Adam_Everett_CLE_2011.jpg' },
+  { rank:3,  player:'Javier Baez',       season:2019, drs:33, age:26, initials:'JB',
+    headshot:'Javier_Baez_DET_2025.jpg' },
+  { rank:4,  player:'Andrelton Simmons', season:2013, drs:33, age:23, initials:'AS',
+    headshot:'Andrelton_Simmons_CHN_2022.jpg' },
+  { rank:5,  player:'Jack Wilson',       season:2005, drs:32, age:27, initials:'JW',
+    headshot:'Jack_Wilson_ATL_2012.jpg' },
+  { rank:6,  player:'Troy Tulowitzki',   season:2007, drs:31, age:22, initials:'TT',
+    headshot:'Troy_Tulowitzki_NYA_2019.jpg' },
+  { rank:7,  player:'Andrelton Simmons', season:2015, drs:28, age:25, initials:'AS',
+    headshot:'Andrelton_Simmons_CHN_2022.jpg' },
+  { rank:8,  player:'Jack Wilson',       season:2009, drs:28, age:31, initials:'JW',
+    headshot:'Jack_Wilson_ATL_2012.jpg' },
+  { rank:9,  player:'Brendan Ryan',      season:2012, drs:27, age:30, initials:'BR',
+    headshot:'Brendan_Ryan_LAA_2016.jpg' },
+  { rank:10, player:'Alex Gonzalez',     season:2010, drs:26, age:33, initials:'AG',
+    headshot:'Alex_Gonzalez_DET_2014.jpg' },
+];
+
+const HEADSHOT_BASE = '/Users/euno/Desktop/DiamondMine/data/baseball_output_2015_present/headshots/';
+
+function rankClass(r) {
+  if (r === 1) return 'rank-1';
+  if (r === 2) return 'rank-2';
+  if (r === 3) return 'rank-3';
+  return '';
+}
+
+function buildRow(d) {
+  const div = document.createElement('div');
+  div.className = `row ${rankClass(d.rank)}`;
+  div.id = `row-${d.rank}`;
+
+  const pct = Math.round((d.drs / MAX_DRS) * 100);
+
+  div.innerHTML = `
+    <div class="rank">${d.rank}</div>
+    <div class="headshot-wrap">
+      <div class="headshot-circle" id="hc-${d.rank}">${d.initials}</div>
+    </div>
+    <div class="player-info">
+      <div class="player-name">${d.player}</div>
+      <div class="player-meta">${d.season} SEASON</div>
+    </div>
+    <div class="drs-num">+${d.drs}</div>
+    <div class="bar-wrap">
+      <div class="bar-track">
+        <div class="bar-fill" id="bar-${d.rank}" data-pct="${pct}"></div>
+      </div>
+    </div>
+    <div style="text-align:right">
+      <div class="age-badge">AGE</div>
+      <div class="age-val">${d.age}</div>
+    </div>
+  `;
+
+  return div;
+}
+
+async function loadHeadshot(d) {
+  const path = HEADSHOT_BASE + d.headshot;
+  const url = `${BASE}/headshot?path=${encodeURIComponent(path)}`;
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return;
+    const blob = await r.blob();
+    const objUrl = URL.createObjectURL(blob);
+    const el = document.getElementById(`hc-${d.rank}`);
+    if (el) {
+      el.innerHTML = `<img src="${objUrl}" alt="${d.player}"/>`;
+    }
+  } catch(e) { /* keep initials fallback */ }
+}
+
+// Build rows and animate in
+const container = document.getElementById('rows');
+DATA.forEach(d => container.appendChild(buildRow(d)));
+
+// Stagger rows in
+DATA.forEach((d, i) => {
+  const row = document.getElementById(`row-${d.rank}`);
+  setTimeout(() => {
+    row.style.animation = `slideIn 0.5s cubic-bezier(0.16,1,0.3,1) forwards`;
+    // Animate bar after row appears
+    setTimeout(() => {
+      const bar = document.getElementById(`bar-${d.rank}`);
+      if (bar) bar.style.width = bar.dataset.pct + '%';
+    }, 300);
+  }, 600 + i * 120);
+});
+
+// Load headshots concurrently
+DATA.forEach(d => loadHeadshot(d));
+</script>
+</body>
+</html>
