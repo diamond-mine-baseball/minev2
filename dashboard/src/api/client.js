@@ -1,9 +1,10 @@
 // All API calls go through here — single source of truth
-// In production (Vercel), VITE_API_URL = https://your-app.railway.app
-// In development, proxy to localhost:5001 via Vite
+const PROD_URL = 'https://minev2-production-84a2.up.railway.app'
+const IS_LOCAL = typeof window !== 'undefined' && window.location.hostname === 'localhost'
+
 const BASE = import.meta.env.VITE_API_URL
   ? import.meta.env.VITE_API_URL.replace(/\/$/, '')
-  : '/api'
+  : IS_LOCAL ? '/api' : PROD_URL
 
 async function get(path, params = {}) {
   const qs = new URLSearchParams(
