@@ -1,29 +1,15 @@
 import React, { useState } from 'react'
 import { T } from '../../theme'
-import { api } from '../../api/client'
 
 const CDN_BASE = 'https://raw.githubusercontent.com/diamond-mine-baseball/dataservice/main/headshots'
 const MLB_CDN  = id => `https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_213,q_auto:best/v1/people/${id}/headshot/67/current`
 
-// Build ordered list of URLs to try for a player
 function getSrcs(player) {
   const srcs = []
-
-  // 1. Local API (serves from ~/Desktop/DiamondMinev2/data/Headshots/)
-  if (player?.mlbam_id || player?.headshot) {
-    srcs.push(api.headshotUrl({ mlbam_id: player.mlbam_id, filename: player.headshot }))
-  }
-
-  // 2. jsDelivr CDN (same filenames as local — works from any device)
-  if (player?.headshot) {
-    srcs.push(`${CDN_BASE}/${player.headshot}`)
-  }
-
-  // 3. MLB official CDN (covers players with mlbam_id but no headshot file)
-  if (player?.mlbam_id) {
-    srcs.push(MLB_CDN(player.mlbam_id))
-  }
-
+  // Go straight to GitHub CDN — no local API call needed in production
+  if (player?.headshot) srcs.push(`${CDN_BASE}/${player.headshot}`)
+  // MLB official CDN as fallback for players with mlbam_id but no headshot file
+  if (player?.mlbam_id) srcs.push(MLB_CDN(player.mlbam_id))
   return srcs
 }
 
