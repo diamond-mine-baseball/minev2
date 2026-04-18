@@ -238,7 +238,7 @@ def career_pitching(name: str = Query(...)):
 BATTING_COLS = {
     "bwar", "opsplus", "hr", "rbi", "avg", "obp", "slg", "ops",
     "sb", "bb", "so", "h", "pa", "xwoba", "ev", "hard_hit_pct",
-    "k_pct", "bb_pct", "doubles", "triples", "r", "g",
+    "barrel_pct", "k_pct", "bb_pct", "doubles", "triples", "r", "g",
 }
 PITCHING_COLS = {
     "bwar", "eraplus", "era", "so", "ip", "whip", "fip",
@@ -262,10 +262,18 @@ def leaderboard_batting(
         rows = conn.execute(f"""
             SELECT b.name, b.season, b.team, b.age, b.g, b.pa, b.h, b.hr, b.rbi,
                    b.bb, b.so, b.sb, b.avg, b.obp, b.slg, b.ops,
-                   b.bwar, b.opsplus, b.xwoba, b.ev, b.doubles, b.r,
-                   p.headshot
+                   b.bwar, b.opsplus, b.xwoba, b.ev, b.hard_hit_pct, b.barrel_pct,
+                   b.doubles, b.triples, b.r,
+                   CASE WHEN b.k_pct IS NOT NULL THEN b.k_pct
+                        WHEN b.pa > 0 THEN ROUND(CAST(b.so AS REAL)/b.pa*100,1)
+                        ELSE NULL END k_pct,
+                   CASE WHEN b.bb_pct IS NOT NULL THEN b.bb_pct
+                        WHEN b.pa > 0 THEN ROUND(CAST(b.bb AS REAL)/b.pa*100,1)
+                        ELSE NULL END bb_pct,
+                   COALESCE(p1.headshot, p2.headshot) headshot
             FROM batting b
-            LEFT JOIN player p ON b.mlbam_id = p.mlbam_id
+            LEFT JOIN player p1 ON b.mlbam_id = p1.mlbam_id AND b.mlbam_id IS NOT NULL
+            LEFT JOIN player p2 ON LOWER(b.name) = LOWER(p2.name) AND b.mlbam_id IS NULL
             WHERE b.season = ? AND (b.pa >= ? OR b.pa IS NULL) {team_clause}
             ORDER BY b.{stat} DESC NULLS LAST
             LIMIT ?
@@ -297,7 +305,8 @@ def leaderboard_pitching(
                    p.bwar, p.eraplus, p.fip, p.k_9, p.bb_9,
                    pl.headshot
             FROM pitching p
-            LEFT JOIN player pl ON p.mlbam_id = pl.mlbam_id
+            LEFT JOIN player pl ON (p.mlbam_id IS NOT NULL AND p.mlbam_id = pl.mlbam_id)
+                           OR (p.mlbam_id IS NULL AND LOWER(pl.name) = LOWER(p.name))
             WHERE p.season = ? AND (p.ip >= ? OR p.ip IS NULL) {role_clause}
             ORDER BY p.{stat} {order} NULLS LAST
             LIMIT ?
@@ -660,6 +669,266 @@ def hof_lookup(name: str = Query(...)):
         return {"hof": dict(row) if row else None}
     finally:
         conn.close()
+
+
+
+# ── SDI (Sustained Deviation Index) ───────────────────────────────────────────
+
+def _norm_name(s):
+    """Strip accents and normalize name for deduplication."""
+    import unicodedata
+    s = unicodedata.normalize("NFD", str(s))
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return s.strip()
+
+@app.get("/sdi/batting")
+def sdi_batting(
+    season: int = Query(default=CURRENT_YEAR),
+    min_pa: int = Query(default=50),
+    limit:  int = Query(default=50, le=200),
+    sort_by: str = Query(default="overall_confidence"),
+):
+    """
+    Return SDI (Sustained Deviation Index) scores for batters.
+    Scoped to current season only — early-season signal detection tool.
+    """
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT name, season, team, pa, hr, avg, obp, slg, ops, bwar, opsplus,
+                   xwoba, ev, hard_hit_pct, barrel_pct, k_pct, bb_pct, bb, so
+            FROM batting
+            WHERE season = ? AND pa >= ?
+            ORDER BY pa DESC
+        """, (season, min_pa)).fetchall()
+
+        results = []
+        for row in rows_to_list(rows):
+            sdi = _compute_batter_sdi(conn, row, season)
+            if sdi:
+                row.update(sdi)
+                results.append(row)
+
+        # Sort
+        results.sort(key=lambda x: x.get(sort_by) or 0, reverse=True)
+        return {"season": season, "results": results[:limit]}
+    finally:
+        conn.close()
+
+
+@app.get("/sdi/pitching")
+def sdi_pitching(
+    season: int = Query(default=CURRENT_YEAR),
+    min_ip: float = Query(default=10.0),
+    limit:  int = Query(default=50, le=200),
+    sort_by: str = Query(default="overall_confidence"),
+):
+    """SDI scores for pitchers. Scoped to current season."""
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT name, season, team, ip, era, whip, eraplus, bwar,
+                   CASE WHEN ip > 0 THEN ROUND(CAST(so AS REAL)/ip*9,2) ELSE NULL END k_9,
+                   CASE WHEN ip > 0 THEN ROUND(CAST(bb AS REAL)/ip*9,2) ELSE NULL END bb_9,
+                   k_pct, bb_pct, so, bb, er, h, g, gs
+            FROM pitching
+            WHERE season = ? AND ip >= ?
+            ORDER BY ip DESC
+        """, (season, min_ip)).fetchall()
+
+        results = []
+        for row in rows_to_list(rows):
+            sdi = _compute_pitcher_sdi(conn, row, season)
+            if sdi:
+                row.update(sdi)
+                results.append(row)
+
+        results.sort(key=lambda x: x.get(sort_by) or 0, reverse=True)
+        return {"season": season, "results": results[:limit]}
+    finally:
+        conn.close()
+
+
+def _compute_batter_sdi(conn, current, season):
+    """
+    Compute SDI for a single batter.
+    Returns dict with reliability weights and sustained deviations per metric.
+    """
+    name = current["name"]
+    curr_pa = current.get("pa") or 0
+    if curr_pa < 20:
+        return None
+
+    # Career averages (exclude current season)
+    career = conn.execute("""
+        SELECT AVG(k_pct) k_pct, AVG(bb_pct) bb_pct,
+               AVG(CASE WHEN xwoba IS NOT NULL THEN xwoba END) xwoba,
+               AVG(CASE WHEN barrel_pct IS NOT NULL THEN barrel_pct END) barrel_pct,
+               AVG(CASE WHEN hard_hit_pct IS NOT NULL THEN hard_hit_pct END) hard_hit_pct,
+               AVG(ev) ev, SUM(pa) career_pa, COUNT(season) seasons
+        FROM batting
+        WHERE LOWER(name) = LOWER(?) AND season < ?
+    """, (name, season)).fetchone()
+
+    if not career or not career["career_pa"]:
+        return None  # Rookie with no prior seasons
+
+    career = dict(career)
+
+    # Archetype detection: TTO vs Contact
+    # TTO = high K% + high BB% + high HR rate; Contact = low K%, higher contact
+    k_pct_career = career.get("k_pct") or 20
+    hr_rate = (current.get("hr") or 0) / max(curr_pa, 1) * 600
+    archetype = "tto" if (k_pct_career > 22 or hr_rate > 25) else "contact"
+
+    # Stabilization S-values (PA where signal = noise)
+    S = {
+        "k_pct":       40  if archetype == "contact" else 80,
+        "bb_pct":      120 if archetype == "contact" else 80,
+        "xwoba":       150 if archetype == "contact" else 100,
+        "barrel_pct":  80  if archetype == "contact" else 30,
+        "hard_hit_pct": 60,
+    }
+
+    metrics = {}
+    total_w = 0
+    metrics_computed = 0
+
+    for metric, s_val in S.items():
+        curr_val = current.get(metric)
+        career_val = career.get(metric)
+        if curr_val is None or career_val is None:
+            continue
+
+        sample = curr_pa
+        weight = sample / (sample + s_val)
+        raw_dev = float(curr_val) - float(career_val)
+        sustained = raw_dev * weight
+
+        metrics[metric] = {
+            "current": round(float(curr_val), 3),
+            "career":  round(float(career_val), 3),
+            "reliability_pct": round(weight * 100, 1),
+            "raw_deviation":   round(raw_dev, 3),
+            "sustained_deviation": round(sustained, 3),
+        }
+        total_w += weight
+        metrics_computed += 1
+
+    if metrics_computed == 0:
+        return None
+
+    overall_confidence = round((total_w / metrics_computed) * 100, 1)
+
+    # Determine signal type
+    positive_sdi = sum(1 for m in metrics.values() if m["sustained_deviation"] > 0)
+    negative_sdi = sum(1 for m in metrics.values() if m["sustained_deviation"] < 0)
+
+    if overall_confidence >= 50 and positive_sdi > negative_sdi:
+        signal = "breakout"
+    elif overall_confidence >= 50 and negative_sdi > positive_sdi:
+        signal = "regression"
+    elif overall_confidence < 30:
+        signal = "noise"
+    else:
+        signal = "stable"
+
+    return {
+        "sdi_metrics":         metrics,
+        "overall_confidence":  overall_confidence,
+        "archetype":           archetype,
+        "signal":              signal,
+        "career_pa":           career.get("career_pa"),
+        "career_seasons":      career.get("seasons"),
+    }
+
+
+def _compute_pitcher_sdi(conn, current, season):
+    """Compute SDI for a single pitcher."""
+    name = current["name"]
+    curr_ip = current.get("ip") or 0
+    if curr_ip < 5:
+        return None
+
+    career = conn.execute("""
+        SELECT AVG(CASE WHEN ip > 0 THEN CAST(so AS REAL)/ip*9 END) k_9,
+               AVG(CASE WHEN ip > 0 THEN CAST(bb AS REAL)/ip*9 END) bb_9,
+               AVG(era) era, AVG(eraplus) eraplus,
+               AVG(CASE WHEN ip > 0 THEN (h+bb)*1.0/ip END) whip,
+               SUM(ip) career_ip, COUNT(season) seasons
+        FROM pitching
+        WHERE LOWER(name) = LOWER(?) AND season < ?
+    """, (name, season)).fetchone()
+
+    if not career or not career["career_ip"]:
+        return None
+
+    career = dict(career)
+
+    # Archetype: power vs finesse
+    k9_career = career.get("k_9") or 7
+    archetype = "power" if k9_career > 9 else "finesse"
+
+    S = {
+        "k_9":  50  if archetype == "power" else 90,
+        "bb_9": 150 if archetype == "power" else 120,
+        "era":  200,
+        "whip": 150,
+    }
+
+    metrics = {}
+    total_w = 0
+    metrics_computed = 0
+
+    for metric, s_val in S.items():
+        curr_val = current.get(metric)
+        career_val = career.get(metric)
+        if curr_val is None or career_val is None:
+            continue
+
+        # Use BF estimate for pitchers (IP * ~3.7)
+        sample = curr_ip * 3.7
+        weight = sample / (sample + s_val)
+        raw_dev = float(curr_val) - float(career_val)
+        # ERA/WHIP: negative deviation = improvement
+        if metric in ("era", "whip", "bb_9"):
+            raw_dev = -raw_dev
+        sustained = raw_dev * weight
+
+        metrics[metric] = {
+            "current": round(float(curr_val), 3),
+            "career":  round(float(career_val), 3),
+            "reliability_pct": round(weight * 100, 1),
+            "raw_deviation":   round(raw_dev, 3),
+            "sustained_deviation": round(sustained, 3),
+        }
+        total_w += weight
+        metrics_computed += 1
+
+    if metrics_computed == 0:
+        return None
+
+    overall_confidence = round((total_w / metrics_computed) * 100, 1)
+    positive_sdi = sum(1 for m in metrics.values() if m["sustained_deviation"] > 0)
+    negative_sdi = sum(1 for m in metrics.values() if m["sustained_deviation"] < 0)
+
+    if overall_confidence >= 50 and positive_sdi > negative_sdi:
+        signal = "breakout"
+    elif overall_confidence >= 50 and negative_sdi > positive_sdi:
+        signal = "regression"
+    elif overall_confidence < 30:
+        signal = "noise"
+    else:
+        signal = "stable"
+
+    return {
+        "sdi_metrics":        metrics,
+        "overall_confidence": overall_confidence,
+        "archetype":          archetype,
+        "signal":             signal,
+        "career_ip":          career.get("career_ip"),
+        "career_seasons":     career.get("seasons"),
+    }
 
 
 if __name__ == "__main__":
