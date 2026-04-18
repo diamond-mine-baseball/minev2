@@ -683,68 +683,94 @@ def _norm_name(s):
 
 @app.get("/sdi/batting")
 def sdi_batting(
-    season: int = Query(default=CURRENT_YEAR),
-    min_pa: int = Query(default=50),
-    limit:  int = Query(default=50, le=200),
+    season:  int = Query(default=CURRENT_YEAR),
+    signal:  Optional[str] = None,  # breakout | regression | noise | stable
+    limit:   int = Query(default=50, le=200),
     sort_by: str = Query(default="overall_confidence"),
 ):
-    """
-    Return SDI (Sustained Deviation Index) scores for batters.
-    Scoped to current season only — early-season signal detection tool.
-    """
+    """Pre-computed SDI for batters. Run compute_sdi.py to refresh."""
     conn = get_db()
     try:
-        rows = conn.execute("""
-            SELECT name, season, team, pa, hr, avg, obp, slg, ops, bwar, opsplus,
-                   xwoba, ev, hard_hit_pct, barrel_pct, k_pct, bb_pct, bb, so
-            FROM batting
-            WHERE season = ? AND pa >= ?
-            ORDER BY pa DESC
-        """, (season, min_pa)).fetchall()
+        signal_clause = f"AND signal = '{signal}'" if signal else ""
+        rows = conn.execute(f"""
+            SELECT s.name, s.season, s.team, s.archetype, s.overall_confidence,
+                   s.signal, s.metrics_json, s.career_pa, s.career_seasons,
+                   b.pa, b.hr, b.avg, b.obp, b.slg, b.ops, b.bwar, b.opsplus,
+                   b.xwoba, b.ev, b.hard_hit_pct, b.barrel_pct,
+                   COALESCE(p1.headshot, p2.headshot) headshot
+            FROM sdi_2026 s
+            JOIN batting b ON LOWER(b.name)=LOWER(s.name) AND b.season=s.season AND b.team=s.team
+            LEFT JOIN player p1 ON b.mlbam_id = p1.mlbam_id AND b.mlbam_id IS NOT NULL
+            LEFT JOIN player p2 ON LOWER(b.name) = LOWER(p2.name) AND b.mlbam_id IS NULL
+            WHERE s.season=? AND s.role='batter' {signal_clause}
+            ORDER BY s.{sort_by} DESC NULLS LAST
+            LIMIT ?
+        """, (season, limit)).fetchall()
 
         results = []
         for row in rows_to_list(rows):
-            sdi = _compute_batter_sdi(conn, row, season)
-            if sdi:
-                row.update(sdi)
-                results.append(row)
-
-        # Sort
-        results.sort(key=lambda x: x.get(sort_by) or 0, reverse=True)
-        return {"season": season, "results": results[:limit]}
+            row["sdi_metrics"] = __import__("json").loads(row.pop("metrics_json") or "{}")
+            results.append(row)
+        return {"season": season, "signal": signal, "results": results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"SDI data not found. Run compute_sdi.py first. Error: {e}")
     finally:
         conn.close()
 
 
 @app.get("/sdi/pitching")
 def sdi_pitching(
-    season: int = Query(default=CURRENT_YEAR),
-    min_ip: float = Query(default=10.0),
-    limit:  int = Query(default=50, le=200),
+    season:  int = Query(default=CURRENT_YEAR),
+    signal:  Optional[str] = None,
+    limit:   int = Query(default=50, le=200),
     sort_by: str = Query(default="overall_confidence"),
 ):
-    """SDI scores for pitchers. Scoped to current season."""
+    """Pre-computed SDI for pitchers."""
     conn = get_db()
     try:
-        rows = conn.execute("""
-            SELECT name, season, team, ip, era, whip, eraplus, bwar,
-                   CASE WHEN ip > 0 THEN ROUND(CAST(so AS REAL)/ip*9,2) ELSE NULL END k_9,
-                   CASE WHEN ip > 0 THEN ROUND(CAST(bb AS REAL)/ip*9,2) ELSE NULL END bb_9,
-                   k_pct, bb_pct, so, bb, er, h, g, gs
-            FROM pitching
-            WHERE season = ? AND ip >= ?
-            ORDER BY ip DESC
-        """, (season, min_ip)).fetchall()
+        signal_clause = f"AND signal = '{signal}'" if signal else ""
+        rows = conn.execute(f"""
+            SELECT s.name, s.season, s.team, s.archetype, s.overall_confidence,
+                   s.signal, s.metrics_json, s.career_ip, s.career_seasons,
+                   p.ip, p.era, p.whip, p.eraplus, p.bwar, p.so, p.g, p.gs,
+                   ROUND(CAST(p.so AS REAL)/NULLIF(p.ip,0)*9,2) k_9,
+                   ROUND(CAST(p.bb AS REAL)/NULLIF(p.ip,0)*9,2) bb_9,
+                   COALESCE(pl1.headshot, pl2.headshot) headshot
+            FROM sdi_2026 s
+            JOIN pitching p ON LOWER(p.name)=LOWER(s.name) AND p.season=s.season AND p.team=s.team
+            LEFT JOIN player pl1 ON p.mlbam_id = pl1.mlbam_id AND p.mlbam_id IS NOT NULL
+            LEFT JOIN player pl2 ON LOWER(p.name) = LOWER(pl2.name) AND p.mlbam_id IS NULL
+            WHERE s.season=? AND s.role='pitcher' {signal_clause}
+            ORDER BY s.{sort_by} DESC NULLS LAST
+            LIMIT ?
+        """, (season, limit)).fetchall()
 
         results = []
         for row in rows_to_list(rows):
-            sdi = _compute_pitcher_sdi(conn, row, season)
-            if sdi:
-                row.update(sdi)
-                results.append(row)
+            row["sdi_metrics"] = __import__("json").loads(row.pop("metrics_json") or "{}")
+            results.append(row)
+        return {"season": season, "signal": signal, "results": results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"SDI data not found. Run compute_sdi.py first. Error: {e}")
+    finally:
+        conn.close()
 
-        results.sort(key=lambda x: x.get(sort_by) or 0, reverse=True)
-        return {"season": season, "results": results[:limit]}
+
+@app.get("/sdi/player")
+def sdi_player(name: str = Query(...), season: int = Query(default=CURRENT_YEAR)):
+    """Get SDI breakdown for a specific player."""
+    conn = get_db()
+    try:
+        row = conn.execute("""
+            SELECT * FROM sdi_2026
+            WHERE LOWER(name)=LOWER(?) AND season=?
+            LIMIT 1
+        """, (name, season)).fetchone()
+        if not row:
+            return {"name": name, "season": season, "sdi": None}
+        r = dict(row)
+        r["sdi_metrics"] = __import__("json").loads(r.pop("metrics_json") or "{}")
+        return {"name": name, "season": season, "sdi": r}
     finally:
         conn.close()
 
