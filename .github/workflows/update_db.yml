@@ -1,0 +1,51 @@
+name: Daily DB Update
+on:
+  schedule:
+    - cron: '0 8 * * *'  # 8am UTC = 4am ET
+  workflow_dispatch:       # manual trigger from Actions tab
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install pandas requests
+
+      - name: Download current DB
+        run: |
+          curl -L "${{ secrets.DB_DOWNLOAD_URL }}" -o diamondmine.db
+          echo "Downloaded: $(du -sh diamondmine.db)"
+
+      - name: Update current year stats
+        run: |
+          cd Scripts
+          python3 load_data.py --step bref --year $(date +%Y)
+          python3 load_data.py --step mlb --year $(date +%Y)
+          python3 load_data.py --step statcast --year $(date +%Y)
+
+      - name: Upload updated DB to GitHub Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="db-$(date +%Y-%m-%d)"
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          gh release create "$TAG" diamondmine.db \
+            --title "Database $TAG" \
+            --notes "Automated daily update"
+          echo "DBTAG=$TAG" >> $GITHUB_ENV
+
+      - name: Point Railway at new DB and redeploy
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          pip install railwayapp
+          railway variables set \
+            DB_DOWNLOAD_URL="https://github.com/diamond-mine-baseball/minev2/releases/download/${{ env.DBTAG }}/diamondmine.db" \
+            --service minev2
+          railway redeploy --service minev2
