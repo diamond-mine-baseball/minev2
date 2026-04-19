@@ -356,13 +356,27 @@ def main(season):
         ORDER BY pa DESC
     """, (season,)).fetchall()
 
-    # Deduplicate: keep only row with highest PA per player (removes empty-team aggregates)
+    # Deduplicate batters:
+    # 1. Prefer 2TM/3TM/4TM aggregate row (full season stats for traded players)
+    # 2. Fall back to single-team row with most PA
+    # 3. Skip blank "" team rows (BRef artifacts, not real aggregates)
     seen = {}
     for row in [dict(r) for r in batters]:
+        team = (row.get("team") or "").strip()
+        if team == "":  # skip blank-team artifacts only
+            continue
         key = row["name"].lower().strip()
-        if key not in seen or (row.get("pa") or 0) > (seen[key].get("pa") or 0):
+        is_aggregate = team in ("2TM", "3TM", "4TM")
+        existing = seen.get(key)
+        if existing is None:
             seen[key] = row
+        elif is_aggregate:
+            seen[key] = row  # aggregate always wins
+        elif (existing.get("team") or "") not in ("2TM", "3TM", "4TM"):
+            if (row.get("pa") or 0) > (existing.get("pa") or 0):
+                seen[key] = row  # keep highest PA single-team row
     batters_deduped = list(seen.values())
+
 
     b_inserted = 0
     for row in batters_deduped:
@@ -394,8 +408,27 @@ def main(season):
         ORDER BY ip DESC
     """, (season,)).fetchall()
 
+    # Deduplicate pitchers: prefer 2TM/3TM aggregates, skip blank team only
+    seen_p = {}
+    for _r in [dict(r) for r in pitchers]:
+        _team = (_r.get("team") or "").strip()
+        if _team == "":  # skip blank-team artifacts only
+            continue
+        _key = _r["name"].lower().strip()
+        _is_agg = _team in ("2TM", "3TM", "4TM")
+        _existing = seen_p.get(_key)
+        if _existing is None:
+            seen_p[_key] = _r
+        elif _is_agg:
+            seen_p[_key] = _r
+        elif (_existing.get("team") or "") not in ("2TM", "3TM", "4TM"):
+            if (_r.get("ip") or 0) > (_existing.get("ip") or 0):
+                seen_p[_key] = _r
+    pitchers_deduped = list(seen_p.values())
+
+
     p_inserted = 0
-    for row in [dict(r) for r in pitchers]:
+    for row in pitchers_deduped:
         result = compute_pitcher_sdi(conn, row, season)
         if not result:
             continue
@@ -418,19 +451,19 @@ def main(season):
     # Spot check
     log.info("\nTop 5 breakout batters:")
     for r in conn.execute("""
-        SELECT name, team, overall_confidence, signal FROM sdi_2026
+        SELECT name, team, overall_confidence, signal, net_sdi FROM sdi_2026
         WHERE season=? AND role='batter' AND signal='breakout'
-        ORDER BY net_sdi DESC LIMIT 5
+        ORDER BY net_sdi DESC LIMIT 10
     """, (season,)).fetchall():
-        log.info(f"  {r[0]} ({r[1]}): {r[2]}% confidence — {r[3]}")
+        log.info(f"  {r[0]} ({r[1]}): net_sdi={r[4]:.3f}, conf={r[2]}% — {r[3]}")
 
     log.info("\nTop 5 regression pitchers:")
     for r in conn.execute("""
-        SELECT name, team, overall_confidence, signal FROM sdi_2026
+        SELECT name, team, overall_confidence, signal, net_sdi FROM sdi_2026
         WHERE season=? AND role='pitcher' AND signal='regression'
-        ORDER BY ABS(net_sdi) DESC LIMIT 5
+        ORDER BY ABS(net_sdi) DESC LIMIT 10
     """, (season,)).fetchall():
-        log.info(f"  {r[0]} ({r[1]}): {r[2]}% confidence — {r[3]}")
+        log.info(f"  {r[0]} ({r[1]}): net_sdi={r[4]:.3f}, conf={r[2]}% — {r[3]}")
 
     conn.close()
     log.info("\nDone.")
