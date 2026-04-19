@@ -686,7 +686,7 @@ def sdi_batting(
     season:  int = Query(default=CURRENT_YEAR),
     signal:  Optional[str] = None,  # breakout | regression | noise | stable
     limit:   int = Query(default=50, le=200),
-    sort_by: str = Query(default="overall_confidence"),
+    sort_by: str = Query(default="net_sdi"),
 ):
     """Pre-computed SDI for batters. Run compute_sdi.py to refresh."""
     conn = get_db()
@@ -694,12 +694,13 @@ def sdi_batting(
         signal_clause = f"AND signal = '{signal}'" if signal else ""
         rows = conn.execute(f"""
             SELECT s.name, s.season, s.team, s.archetype, s.overall_confidence,
-                   s.signal, s.metrics_json, s.career_pa, s.career_seasons,
+                   s.signal, s.net_sdi, s.metrics_json, s.career_pa, s.career_seasons,
                    b.pa, b.hr, b.avg, b.obp, b.slg, b.ops, b.bwar, b.opsplus,
                    b.xwoba, b.ev, b.hard_hit_pct, b.barrel_pct,
                    COALESCE(p1.headshot, p2.headshot) headshot
             FROM sdi_2026 s
-            JOIN batting b ON LOWER(b.name)=LOWER(s.name) AND b.season=s.season AND b.team=s.team
+            JOIN batting b ON LOWER(b.name)=LOWER(s.name) AND b.season=s.season
+                AND (b.team=s.team OR s.team IS NULL OR s.team='')
             LEFT JOIN player p1 ON b.mlbam_id = p1.mlbam_id AND b.mlbam_id IS NOT NULL
             LEFT JOIN player p2 ON LOWER(b.name) = LOWER(p2.name) AND b.mlbam_id IS NULL
             WHERE s.season=? AND s.role='batter' {signal_clause}
@@ -723,7 +724,7 @@ def sdi_pitching(
     season:  int = Query(default=CURRENT_YEAR),
     signal:  Optional[str] = None,
     limit:   int = Query(default=50, le=200),
-    sort_by: str = Query(default="overall_confidence"),
+    sort_by: str = Query(default="net_sdi"),
 ):
     """Pre-computed SDI for pitchers."""
     conn = get_db()
@@ -731,13 +732,14 @@ def sdi_pitching(
         signal_clause = f"AND signal = '{signal}'" if signal else ""
         rows = conn.execute(f"""
             SELECT s.name, s.season, s.team, s.archetype, s.overall_confidence,
-                   s.signal, s.metrics_json, s.career_ip, s.career_seasons,
+                   s.signal, s.net_sdi, s.metrics_json, s.career_ip, s.career_seasons,
                    p.ip, p.era, p.whip, p.eraplus, p.bwar, p.so, p.g, p.gs,
                    ROUND(CAST(p.so AS REAL)/NULLIF(p.ip,0)*9,2) k_9,
                    ROUND(CAST(p.bb AS REAL)/NULLIF(p.ip,0)*9,2) bb_9,
                    COALESCE(pl1.headshot, pl2.headshot) headshot
             FROM sdi_2026 s
-            JOIN pitching p ON LOWER(p.name)=LOWER(s.name) AND p.season=s.season AND p.team=s.team
+            JOIN pitching p ON LOWER(p.name)=LOWER(s.name) AND p.season=s.season
+                AND (p.team=s.team OR s.team IS NULL OR s.team='')
             LEFT JOIN player pl1 ON p.mlbam_id = pl1.mlbam_id AND p.mlbam_id IS NOT NULL
             LEFT JOIN player pl2 ON LOWER(p.name) = LOWER(pl2.name) AND p.mlbam_id IS NULL
             WHERE s.season=? AND s.role='pitcher' {signal_clause}
