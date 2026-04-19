@@ -17,8 +17,8 @@ const T = {
 const SIGNAL = {
   breakout:   { label:'BREAKOUT',    color:T.green, bg:T.greenDim, icon:'⚡' },
   regression: { label:'BOUNCE BACK', color:T.gold,  bg:T.goldDim,  icon:'📈' },
+  stable:     { label:'WATCH',       color:T.blue,  bg:T.blueDim,  icon:'👁'  },
   noise:      { label:'LUCKY',       color:T.red,   bg:T.redDim,   icon:'🎲' },
-  stable:     { label:'STABLE',      color:T.blue,  bg:T.blueDim,  icon:'→'  },
 }
 
 const METRIC_LABELS = {
@@ -106,12 +106,15 @@ function PlayerCard({ player, rank }) {
             </span>
           </div>
           <div style={{marginTop:6}}><ConfidenceBar pct={confidence}/></div>
-          <div style={{marginTop:4,display:'flex',alignItems:'center',gap:8}}>
-            <span style={{fontSize:10,color:T.textMid,fontFamily:T.font}}>
-              {confidence}% signal reliability
+          <div style={{marginTop:4,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+            <span style={{
+              fontSize:13,color:sig.color,fontFamily:T.font,fontWeight:700,
+              letterSpacing:'0.02em'
+            }}>
+              {player.net_sdi > 0 ? '+' : ''}{(player.net_sdi||0).toFixed(3)} SDI
             </span>
             <span style={{fontSize:9,color:T.textLow,fontFamily:T.font}}>
-              {player.career_seasons} seasons ·{' '}
+              {confidence}% confidence · {player.career_seasons} seasons ·{' '}
               {player.career_pa
                 ? `${Math.round(player.career_pa).toLocaleString()} career PA`
                 : player.career_ip
@@ -158,7 +161,7 @@ function Section({ title, subtitle, signal, role, season, icon, accentColor, API
     setLoading(true); setError(null)
     const ep  = role==='pitcher' ? 'sdi/pitching' : 'sdi/batting'
     const min = role==='pitcher' ? 'min_ip=10'    : 'min_pa=30'
-    fetch(`${API_BASE}/${ep}?season=${season}&signal=${signal}&${min}&limit=20&sort_by=overall_confidence`)
+    fetch(`${API_BASE}/${ep}?season=${season}&signal=${signal}&${min}&limit=20&sort_by=net_sdi`)
       .then(r=>r.json())
       .then(d=>{ setData(d.results||[]); setLoading(false) })
       .catch(e=>{ setError(e.message); setLoading(false) })
@@ -248,12 +251,13 @@ export default function FortuneTeller({ apiBase }) {
         </div>
       </div>
 
-      {/* Confidence legend */}
-      <div style={{display:'flex',gap:16,marginBottom:24,flexWrap:'wrap'}}>
+      {/* SDI legend */}
+      <div style={{display:'flex',gap:16,marginBottom:24,flexWrap:'wrap',alignItems:'center'}}>
+        <span style={{fontSize:10,color:T.textLow,fontFamily:T.font}}>SDI magnitude:</span>
         {[
-          {range:'60–100%',label:'Strong signal',color:T.green},
-          {range:'40–60%', label:'Developing',   color:T.gold},
-          {range:'0–40%',  label:'Noise',         color:T.red},
+          {range:'>0.25', label:'Strong signal',  color:T.green},
+          {range:'0.10–0.25', label:'Developing', color:T.gold},
+          {range:'<0.10', label:'Early/noisy',    color:T.textLow},
         ].map(({range,label,color})=>(
           <div key={range} style={{display:'flex',alignItems:'center',gap:6,fontSize:10,color:T.textLow,fontFamily:T.font}}>
             <div style={{width:8,height:8,borderRadius:'50%',background:color}}/>
@@ -261,6 +265,9 @@ export default function FortuneTeller({ apiBase }) {
             <span>{label}</span>
           </div>
         ))}
+        <span style={{fontSize:10,color:T.textLow,fontFamily:T.font,marginLeft:8}}>
+          Confidence % = how much of expected sample has been logged
+        </span>
       </div>
 
       {/* Three columns */}
@@ -272,16 +279,16 @@ export default function FortuneTeller({ apiBase }) {
           accentColor={T.green} API_BASE={API_BASE}
         />
         <Section
-          title="BOUNCE BACK" icon="📈"
-          subtitle="Underperforming career baseline — improvement likely"
+          title="REGRESSION RISK" icon="📉"
+          subtitle="Underperforming career baseline — regression toward mean expected"
           signal="regression" role={role} season={season}
           accentColor={T.gold} API_BASE={API_BASE}
         />
         <Section
-          title="GETTING LUCKY" icon="🎲"
-          subtitle="Strong numbers but sample too small to trust"
-          signal="noise" role={role} season={season}
-          accentColor={T.red} API_BASE={API_BASE}
+          title="WATCH LIST" icon="👁"
+          subtitle="Mixed signals — neither clearly over nor underperforming"
+          signal="stable" role={role} season={season}
+          accentColor={T.blue} API_BASE={API_BASE}
         />
       </div>
 
