@@ -1,0 +1,354 @@
+"""
+compute_sdi.py — Pre-compute SDI for all 2026 players and store in sdi_2026 table.
+Run after each DB update. Results are served instantly by the API.
+
+Usage:
+  python3 compute_sdi.py
+  python3 compute_sdi.py --year 2026
+"""
+
+import sqlite3, unicodedata, re, argparse, logging, json
+from pathlib import Path
+from datetime import datetime
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
+log = logging.getLogger(__name__)
+
+DB_PATH = Path.home() / "Desktop" / "DiamondMinev2" / "diamondmine.db"
+TODAY   = datetime.now().strftime("%Y-%m-%d")
+
+# ── Stabilization S-values ────────────────────────────────────────────────────
+# S = PA/BF where signal == noise (Bayesian 50/50 split)
+# Sources: Albert (2004), Carlin & Louis, BaseballProspectus research
+BATTER_S = {
+    "contact": {
+        "k_pct":        40,   # Contact hitters have low variance K%
+        "bb_pct":       120,
+        "xwoba":        150,
+        "barrel_pct":   80,
+        "hard_hit_pct": 60,
+    },
+    "tto": {
+        "k_pct":        80,   # TTO hitters have high variance K%
+        "bb_pct":       80,
+        "xwoba":        100,
+        "barrel_pct":   30,   # Power hitters barrel consistently
+        "hard_hit_pct": 50,
+    }
+}
+
+PITCHER_S = {
+    "power": {
+        "k_9":  50,
+        "bb_9": 150,
+        "era":  200,
+        "whip": 150,
+    },
+    "finesse": {
+        "k_9":  90,
+        "bb_9": 120,
+        "era":  200,
+        "whip": 150,
+    }
+}
+
+def safe_float(v):
+    try:
+        f = float(v)
+        return None if f != f else f  # NaN check
+    except: return None
+
+def create_sdi_table(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sdi_2026 (
+            name            TEXT,
+            season          INTEGER,
+            team            TEXT,
+            role            TEXT,  -- 'batter' or 'pitcher'
+            archetype       TEXT,
+            overall_confidence REAL,
+            signal          TEXT,  -- 'breakout', 'regression', 'noise', 'stable'
+            metrics_json    TEXT,  -- JSON blob of per-metric details
+            career_pa       REAL,
+            career_ip       REAL,
+            career_seasons  INTEGER,
+            computed_at     TEXT,
+            PRIMARY KEY (name, season, team, role)
+        )
+    """)
+    conn.commit()
+
+def compute_batter_sdi(conn, row, season):
+    name    = row["name"]
+    curr_pa = row.get("pa") or 0
+    if curr_pa < 20:
+        return None
+
+    career = conn.execute("""
+        SELECT
+            AVG(CASE WHEN k_pct IS NOT NULL THEN k_pct
+                     WHEN pa > 0 THEN CAST(so AS REAL)/pa*100 END)    k_pct,
+            AVG(CASE WHEN bb_pct IS NOT NULL THEN bb_pct
+                     WHEN pa > 0 THEN CAST(bb AS REAL)/pa*100 END)    bb_pct,
+            AVG(CASE WHEN xwoba IS NOT NULL THEN xwoba END)            xwoba,
+            AVG(CASE WHEN barrel_pct IS NOT NULL THEN barrel_pct END)  barrel_pct,
+            AVG(CASE WHEN hard_hit_pct IS NOT NULL THEN hard_hit_pct END) hard_hit_pct,
+            SUM(pa) career_pa,
+            COUNT(season) seasons
+        FROM batting
+        WHERE LOWER(name) = LOWER(?) AND season < ?
+    """, (name, season)).fetchone()
+
+    if not career or not career["career_pa"] or career["career_pa"] < 50:
+        return None  # Rookie or insufficient history
+
+    career = dict(career)
+
+    # Archetype detection
+    k_pct_career = safe_float(career.get("k_pct")) or 20
+    hr_pa = (row.get("hr") or 0) / max(curr_pa, 1)
+    archetype = "tto" if (k_pct_career > 22 or hr_pa * 600 > 25) else "contact"
+    s_map = BATTER_S[archetype]
+
+    metrics = {}
+    total_w = 0
+    n = 0
+
+    for metric, s_val in s_map.items():
+        curr_val   = safe_float(row.get(metric))
+        career_val = safe_float(career.get(metric))
+        if curr_val is None or career_val is None:
+            continue
+
+        weight  = curr_pa / (curr_pa + s_val)
+        raw_dev = curr_val - career_val
+        sustained = raw_dev * weight
+
+        metrics[metric] = {
+            "current":             round(curr_val, 3),
+            "career":              round(career_val, 3),
+            "reliability_pct":     round(weight * 100, 1),
+            "raw_deviation":       round(raw_dev, 4),
+            "sustained_deviation": round(sustained, 4),
+        }
+        total_w += weight
+        n += 1
+
+    if n == 0:
+        return None
+
+    overall_confidence = round((total_w / n) * 100, 1)
+
+    pos_sdi = sum(1 for m in metrics.values() if m["sustained_deviation"] > 0.005)
+    neg_sdi = sum(1 for m in metrics.values() if m["sustained_deviation"] < -0.005)
+
+    if overall_confidence >= 50 and pos_sdi > neg_sdi:
+        signal = "breakout"
+    elif overall_confidence >= 50 and neg_sdi > pos_sdi:
+        signal = "regression"
+    elif overall_confidence < 30:
+        signal = "noise"
+    else:
+        signal = "stable"
+
+    return {
+        "archetype":          archetype,
+        "overall_confidence": overall_confidence,
+        "signal":             signal,
+        "metrics":            metrics,
+        "career_pa":          career["career_pa"],
+        "career_seasons":     career["seasons"],
+    }
+
+
+def compute_pitcher_sdi(conn, row, season):
+    name   = row["name"]
+    curr_ip = row.get("ip") or 0
+    if curr_ip < 5:
+        return None
+
+    career = conn.execute("""
+        SELECT
+            AVG(CASE WHEN ip > 0 THEN CAST(so AS REAL)/ip*9 END) k_9,
+            AVG(CASE WHEN ip > 0 THEN CAST(bb AS REAL)/ip*9 END) bb_9,
+            AVG(era) era,
+            AVG(CASE WHEN ip > 0 THEN (h+bb)*1.0/ip END) whip,
+            SUM(ip) career_ip,
+            COUNT(season) seasons
+        FROM pitching
+        WHERE LOWER(name) = LOWER(?) AND season < ?
+    """, (name, season)).fetchone()
+
+    if not career or not career["career_ip"] or career["career_ip"] < 10:
+        return None
+
+    career = dict(career)
+
+    k9_career  = safe_float(career.get("k_9")) or 7
+    archetype  = "power" if k9_career > 9 else "finesse"
+    s_map      = PITCHER_S[archetype]
+    curr_bf    = curr_ip * 3.7  # Estimate batters faced from IP
+
+    metrics = {}
+    total_w = 0
+    n = 0
+
+    # Compute current k_9 / bb_9 / whip from raw totals for accuracy
+    curr_row_full = conn.execute("""
+        SELECT SUM(so) so, SUM(bb) bb, SUM(h) h, SUM(er) er, SUM(ip) ip
+        FROM pitching WHERE LOWER(name)=LOWER(?) AND season=?
+    """, (name, season)).fetchone()
+    if curr_row_full and curr_row_full["ip"] and curr_row_full["ip"] > 0:
+        ip_ = curr_row_full["ip"]
+        row = dict(row)
+        row["k_9"]  = round(curr_row_full["so"] * 9.0 / ip_, 2)
+        row["bb_9"] = round(curr_row_full["bb"] * 9.0 / ip_, 2)
+        row["whip"] = round((curr_row_full["h"] + curr_row_full["bb"]) / ip_, 3)
+        row["era"]  = round(curr_row_full["er"] * 9.0 / ip_, 2)
+
+    for metric, s_val in s_map.items():
+        curr_val   = safe_float(row.get(metric))
+        career_val = safe_float(career.get(metric))
+        if curr_val is None or career_val is None:
+            continue
+
+        weight  = curr_bf / (curr_bf + s_val)
+        raw_dev = curr_val - career_val
+        # Invert: lower ERA/WHIP/BB9 = better
+        if metric in ("era", "whip", "bb_9"):
+            raw_dev = -raw_dev
+        sustained = raw_dev * weight
+
+        metrics[metric] = {
+            "current":             round(curr_val, 3),
+            "career":              round(career_val, 3),
+            "reliability_pct":     round(weight * 100, 1),
+            "raw_deviation":       round(raw_dev, 4),
+            "sustained_deviation": round(sustained, 4),
+        }
+        total_w += weight
+        n += 1
+
+    if n == 0:
+        return None
+
+    overall_confidence = round((total_w / n) * 100, 1)
+    pos_sdi = sum(1 for m in metrics.values() if m["sustained_deviation"] > 0.005)
+    neg_sdi = sum(1 for m in metrics.values() if m["sustained_deviation"] < -0.005)
+
+    if overall_confidence >= 50 and pos_sdi > neg_sdi:
+        signal = "breakout"
+    elif overall_confidence >= 50 and neg_sdi > pos_sdi:
+        signal = "regression"
+    elif overall_confidence < 30:
+        signal = "noise"
+    else:
+        signal = "stable"
+
+    return {
+        "archetype":          archetype,
+        "overall_confidence": overall_confidence,
+        "signal":             signal,
+        "metrics":            metrics,
+        "career_ip":          career["career_ip"],
+        "career_seasons":     career["seasons"],
+    }
+
+
+def main(season):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+
+    create_sdi_table(conn)
+
+    # Clear existing data for this season
+    conn.execute("DELETE FROM sdi_2026 WHERE season = ?", (season,))
+    conn.commit()
+
+    # ── Batters ──
+    log.info(f"Computing batter SDI for {season}...")
+    batters = conn.execute("""
+        SELECT name, team, pa, hr, so, bb, ab,
+               k_pct, bb_pct, xwoba, ev, barrel_pct, hard_hit_pct, bwar, opsplus,
+               avg, obp, slg, ops
+        FROM batting WHERE season = ? AND pa >= 20
+        ORDER BY pa DESC
+    """, (season,)).fetchall()
+
+    b_inserted = 0
+    for row in [dict(r) for r in batters]:
+        result = compute_batter_sdi(conn, row, season)
+        if not result:
+            continue
+        conn.execute("""
+            INSERT OR REPLACE INTO sdi_2026
+                (name, season, team, role, archetype, overall_confidence,
+                 signal, metrics_json, career_pa, career_ip, career_seasons, computed_at)
+            VALUES (?,?,?,?,?,?,?,?,?,NULL,?,?)
+        """, (
+            row["name"], season, row["team"], "batter",
+            result["archetype"], result["overall_confidence"],
+            result["signal"], json.dumps(result["metrics"]),
+            result.get("career_pa"), result.get("career_seasons"), TODAY
+        ))
+        b_inserted += 1
+
+    conn.commit()
+    log.info(f"  Inserted {b_inserted} batter SDI rows")
+
+    # ── Pitchers ──
+    log.info(f"Computing pitcher SDI for {season}...")
+    pitchers = conn.execute("""
+        SELECT name, team, ip, era, whip, eraplus, bwar, so, bb, h, er, g, gs,
+               k_pct, bb_pct
+        FROM pitching WHERE season = ? AND ip >= 5
+        ORDER BY ip DESC
+    """, (season,)).fetchall()
+
+    p_inserted = 0
+    for row in [dict(r) for r in pitchers]:
+        result = compute_pitcher_sdi(conn, row, season)
+        if not result:
+            continue
+        conn.execute("""
+            INSERT OR REPLACE INTO sdi_2026
+                (name, season, team, role, archetype, overall_confidence,
+                 signal, metrics_json, career_pa, career_ip, career_seasons, computed_at)
+            VALUES (?,?,?,?,?,?,?,?,NULL,?,?,?)
+        """, (
+            row["name"], season, row["team"], "pitcher",
+            result["archetype"], result["overall_confidence"],
+            result["signal"], json.dumps(result["metrics"]),
+            result.get("career_ip"), result.get("career_seasons"), TODAY
+        ))
+        p_inserted += 1
+
+    conn.commit()
+    log.info(f"  Inserted {p_inserted} pitcher SDI rows")
+
+    # Spot check
+    log.info("\nTop 5 breakout batters:")
+    for r in conn.execute("""
+        SELECT name, team, overall_confidence, signal FROM sdi_2026
+        WHERE season=? AND role='batter' AND signal='breakout'
+        ORDER BY overall_confidence DESC LIMIT 5
+    """, (season,)).fetchall():
+        log.info(f"  {r[0]} ({r[1]}): {r[2]}% confidence — {r[3]}")
+
+    log.info("\nTop 5 regression pitchers:")
+    for r in conn.execute("""
+        SELECT name, team, overall_confidence, signal FROM sdi_2026
+        WHERE season=? AND role='pitcher' AND signal='regression'
+        ORDER BY overall_confidence DESC LIMIT 5
+    """, (season,)).fetchall():
+        log.info(f"  {r[0]} ({r[1]}): {r[2]}% confidence — {r[3]}")
+
+    conn.close()
+    log.info("\nDone.")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--year", type=int, default=datetime.now().year)
+    args = parser.parse_args()
+    main(args.year)

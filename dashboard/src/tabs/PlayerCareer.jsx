@@ -102,10 +102,12 @@ function CareerTable({ seasons, type }) {
 export default function PlayerCareer() {
   const [player,  setPlayer]  = useState(null)
   const [data,    setData]    = useState(null)
+  const [sdi,     setSdi]     = useState(null)
   const [type,    setType]    = useState('batting')
   const [chartKey,setChartKey]= useState('bwar')
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState(null)
+  const API_BASE = 'https://minev2-production-84a2.up.railway.app'
 
   const loadPlayer = async (p) => {
     setLoading(true); setError(null); setData(null)
@@ -122,6 +124,15 @@ export default function PlayerCareer() {
         setChartKey('bwar')
       }
       setData(d)
+      // Fetch SDI for current season
+      const curYear = new Date().getFullYear()
+      const hasCurrent = d.seasons?.some(s => s.season === curYear)
+      if (hasCurrent) {
+        fetch(`${API_BASE}/sdi/player?name=${encodeURIComponent(p.name)}&season=${curYear}`)
+          .then(r => r.json())
+          .then(sd => setSdi(sd.sdi || null))
+          .catch(() => setSdi(null))
+      } else { setSdi(null) }
     } catch (e) { setError(e.message) }
     setLoading(false)
   }
@@ -262,6 +273,98 @@ export default function PlayerCareer() {
               />
             </div>
           </div>
+
+
+          {/* SDI — current season signal detection */}
+          {sdi && (() => {
+            const SIGNAL = {
+              breakout:   { label:'BREAKOUT',    color:'#39ff14', icon:'⚡', desc:'Outperforming career baseline with statistical confidence' },
+              regression: { label:'BOUNCE BACK', color:'#d4a800', icon:'📈', desc:'Underperforming career baseline — improvement expected' },
+              noise:      { label:'LUCKY',       color:'#ff4444', icon:'🎲', desc:'Strong numbers but sample too small to trust' },
+              stable:     { label:'STABLE',      color:'#4488ff', icon:'→',  desc:'Performing close to career expectation' },
+            }
+            const MLABELS = { k_pct:'K%',bb_pct:'BB%',xwoba:'xwOBA',barrel_pct:'Barrel%',hard_hit_pct:'HardHit%',k_9:'K/9',bb_9:'BB/9',era:'ERA',whip:'WHIP' }
+            const sig = SIGNAL[sdi.signal] || SIGNAL.stable
+            const metrics = sdi.sdi_metrics || {}
+            const fmt = v => v == null ? '—' : Math.abs(v) < 1 ? Number(v).toFixed(3) : Number(v).toFixed(1)
+            return (
+              <div style={{ ...S.card, borderLeft: `3px solid ${sig.color}` }}>
+                <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:14, flexWrap:'wrap' }}>
+                  <div style={{ fontFamily:T.fontDisplay, fontSize:14, letterSpacing:'0.1em', color:T.accentMid }}>
+                    SDI · {new Date().getFullYear()} SEASON SIGNAL
+                  </div>
+                  <div style={{
+                    padding:'2px 8px', borderRadius:3, fontSize:10,
+                    background: sig.color + '22', color: sig.color,
+                    fontFamily:T.fontMono, letterSpacing:'0.06em',
+                  }}>
+                    {sig.icon} {sig.label}
+                  </div>
+                  <div style={{ fontSize:10, color:T.textLow, fontFamily:T.fontMono }}>
+                    {sdi.overall_confidence}% confidence · {(sdi.archetype||'').toUpperCase()} archetype
+                  </div>
+                  <a href="#sdi-explainer" style={{ marginLeft:'auto', fontSize:10, color:T.accentMid, textDecoration:'none' }}>
+                    What is SDI? →
+                  </a>
+                </div>
+
+                {/* Confidence bar */}
+                <div style={{ marginBottom:14 }}>
+                  <div style={{ fontSize:9, color:T.textLow, fontFamily:T.fontMono, marginBottom:4, letterSpacing:'0.08em' }}>
+                    SIGNAL RELIABILITY — {sdi.overall_confidence}%
+                    <span style={{ marginLeft:8, color:T.textMute }}>
+                      (vs {sdi.career_seasons} season career baseline · {Math.round(sdi.career_pa || sdi.career_ip || 0).toLocaleString()} {sdi.career_pa ? 'career PA' : 'career IP'})
+                    </span>
+                  </div>
+                  <div style={{ height:6, background:T.border, borderRadius:3, overflow:'hidden' }}>
+                    <div style={{
+                      height:'100%',
+                      width:`${sdi.overall_confidence}%`,
+                      background: sdi.overall_confidence >= 60 ? '#39ff14' : sdi.overall_confidence >= 40 ? '#d4a800' : '#ff4444',
+                      borderRadius:3,
+                      transition:'width 0.8s ease',
+                      boxShadow:`0 0 8px ${sig.color}66`,
+                    }}/>
+                  </div>
+                  <div style={{ fontSize:9, color:T.textLow, fontFamily:T.fontMono, marginTop:4 }}>
+                    {sig.desc} · Confidence grows as sample size increases
+                  </div>
+                </div>
+
+                {/* Per-metric breakdown */}
+                <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+                  {Object.entries(metrics).map(([key, m]) => {
+                    const up = m.sustained_deviation > 0
+                    const color = up ? '#39ff14' : '#ff4444'
+                    return (
+                      <div key={key} style={{
+                        background:T.bg, border:`1px solid ${up ? '#1a6e00' : '#6b1414'}`,
+                        borderRadius:4, padding:'6px 10px',
+                        display:'flex', flexDirection:'column', gap:3, minWidth:90,
+                      }}>
+                        <div style={{ fontSize:8, color:T.textLow, fontFamily:T.fontMono, letterSpacing:'0.08em' }}>
+                          {MLABELS[key] || key}
+                        </div>
+                        <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                          <span style={{ fontSize:13, color:T.textHi, fontFamily:T.fontMono }}>{fmt(m.current)}</span>
+                          <span style={{ fontSize:8, color:T.textLow }}>vs</span>
+                          <span style={{ fontSize:11, color:T.textMid, fontFamily:T.fontMono }}>{fmt(m.career)}</span>
+                        </div>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                          <div style={{ height:2, flex:1, background:T.border, borderRadius:1, overflow:'hidden', marginRight:6 }}>
+                            <div style={{ height:'100%', width:`${m.reliability_pct}%`, background:color, opacity:0.7 }}/>
+                          </div>
+                          <span style={{ fontSize:10, color, fontFamily:T.fontMono, fontWeight:700 }}>
+                            {up?'+':''}{fmt(m.sustained_deviation)}
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Season-by-season table */}
           <div style={S.card}>
