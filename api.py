@@ -704,7 +704,7 @@ def sdi_batting(
             LEFT JOIN player p1 ON b.mlbam_id = p1.mlbam_id AND b.mlbam_id IS NOT NULL
             LEFT JOIN player p2 ON LOWER(b.name) = LOWER(p2.name) AND b.mlbam_id IS NULL
             WHERE s.season=? AND s.role='batter' {signal_clause}
-            ORDER BY s.{sort_by} DESC NULLS LAST
+            ORDER BY {"s.net_sdi ASC" if sort_by == "net_sdi_asc" else f"s.{sort_by} DESC"} NULLS LAST
             LIMIT ?
         """, (season, limit)).fetchall()
 
@@ -743,7 +743,7 @@ def sdi_pitching(
             LEFT JOIN player pl1 ON p.mlbam_id = pl1.mlbam_id AND p.mlbam_id IS NOT NULL
             LEFT JOIN player pl2 ON LOWER(p.name) = LOWER(pl2.name) AND p.mlbam_id IS NULL
             WHERE s.season=? AND s.role='pitcher' {signal_clause}
-            ORDER BY s.{sort_by} DESC NULLS LAST
+            ORDER BY {"s.net_sdi ASC" if sort_by == "net_sdi_asc" else f"s.{sort_by} DESC"} NULLS LAST
             LIMIT ?
         """, (season, limit)).fetchall()
 

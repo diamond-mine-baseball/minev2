@@ -161,7 +161,9 @@ function Section({ title, subtitle, signal, role, season, icon, accentColor, API
     setLoading(true); setError(null)
     const ep  = role==='pitcher' ? 'sdi/pitching' : 'sdi/batting'
     const min = role==='pitcher' ? 'min_ip=10'    : 'min_pa=30'
-    fetch(`${API_BASE}/${ep}?season=${season}&signal=${signal}&${min}&limit=20&sort_by=net_sdi`)
+    // Regression sorts ascending (most negative first), breakout descending (most positive first)
+    const sortDir = signal === 'regression' ? 'net_sdi_asc' : 'net_sdi'
+    fetch(`${API_BASE}/${ep}?season=${season}&signal=${signal}&${min}&limit=20&sort_by=${sortDir}`)
       .then(r=>r.json())
       .then(d=>{ setData(d.results||[]); setLoading(false) })
       .catch(e=>{ setError(e.message); setLoading(false) })
