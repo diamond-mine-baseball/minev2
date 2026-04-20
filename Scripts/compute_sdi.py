@@ -87,14 +87,23 @@ def compute_batter_sdi(conn, row, season):
 
     career = conn.execute("""
         SELECT
-            AVG(COALESCE(k_pct, CASE WHEN pa > 0 THEN CAST(so AS REAL)/pa*100 END))   k_pct,
-            AVG(COALESCE(bb_pct, CASE WHEN pa > 0 THEN CAST(bb AS REAL)/pa*100 END))  bb_pct,
-            AVG(CASE WHEN xwoba IS NOT NULL AND xwoba > 0 THEN xwoba END)              xwoba,
-            AVG(CASE WHEN barrel_pct IS NOT NULL AND barrel_pct > 0 THEN barrel_pct END) barrel_pct,
-            AVG(CASE WHEN hard_hit_pct IS NOT NULL AND hard_hit_pct > 0 THEN hard_hit_pct END) hard_hit_pct,
-            AVG(CASE WHEN ev IS NOT NULL AND ev > 0 THEN ev END)                       ev,
-            AVG(CASE WHEN opsplus IS NOT NULL THEN opsplus END)                        opsplus,
-            AVG(CASE WHEN avg IS NOT NULL THEN avg END)                                avg_career,
+            -- PA-weighted averages: full seasons count more than partial/short seasons
+            SUM(COALESCE(k_pct, CASE WHEN pa > 0 THEN CAST(so AS REAL)/pa*100 END) * pa) /
+                NULLIF(SUM(pa),0)                                                      k_pct,
+            SUM(COALESCE(bb_pct, CASE WHEN pa > 0 THEN CAST(bb AS REAL)/pa*100 END) * pa) /
+                NULLIF(SUM(pa),0)                                                      bb_pct,
+            SUM(CASE WHEN xwoba IS NOT NULL AND xwoba > 0 THEN xwoba * pa END) /
+                NULLIF(SUM(CASE WHEN xwoba IS NOT NULL AND xwoba > 0 THEN pa END),0)   xwoba,
+            SUM(CASE WHEN barrel_pct IS NOT NULL AND barrel_pct > 0 THEN barrel_pct * pa END) /
+                NULLIF(SUM(CASE WHEN barrel_pct IS NOT NULL AND barrel_pct > 0 THEN pa END),0) barrel_pct,
+            SUM(CASE WHEN hard_hit_pct IS NOT NULL AND hard_hit_pct > 0 THEN hard_hit_pct * pa END) /
+                NULLIF(SUM(CASE WHEN hard_hit_pct IS NOT NULL AND hard_hit_pct > 0 THEN pa END),0) hard_hit_pct,
+            SUM(CASE WHEN ev IS NOT NULL AND ev > 0 THEN ev * pa END) /
+                NULLIF(SUM(CASE WHEN ev IS NOT NULL AND ev > 0 THEN pa END),0)         ev,
+            SUM(CASE WHEN opsplus IS NOT NULL THEN opsplus * pa END) /
+                NULLIF(SUM(CASE WHEN opsplus IS NOT NULL THEN pa END),0)               opsplus,
+            SUM(CASE WHEN avg IS NOT NULL THEN avg * pa END) /
+                NULLIF(SUM(CASE WHEN avg IS NOT NULL THEN pa END),0)                   avg_career,
             SUM(pa) career_pa,
             COUNT(season) seasons
         FROM batting
@@ -217,10 +226,12 @@ def compute_pitcher_sdi(conn, row, season):
 
     career = conn.execute("""
         SELECT
-            AVG(CASE WHEN ip > 0 THEN CAST(so AS REAL)/ip*9 END) k_9,
-            AVG(CASE WHEN ip > 0 THEN CAST(bb AS REAL)/ip*9 END) bb_9,
-            AVG(era) era,
-            AVG(CASE WHEN ip > 0 THEN (h+bb)*1.0/ip END) whip,
+            -- IP-weighted averages: full seasons count more than partial seasons
+            -- For rate stats, we aggregate totals then compute rate (more accurate than avg of rates)
+            SUM(so) * 9.0 / NULLIF(SUM(ip),0)                                          k_9,
+            SUM(bb) * 9.0 / NULLIF(SUM(ip),0)                                          bb_9,
+            SUM(er) * 9.0 / NULLIF(SUM(ip),0)                                          era,
+            (SUM(h) + SUM(bb)) * 1.0 / NULLIF(SUM(ip),0)                              whip,
             SUM(ip) career_ip,
             COUNT(season) seasons
         FROM pitching
