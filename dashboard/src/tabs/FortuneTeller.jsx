@@ -211,6 +211,15 @@ export default function FortuneTeller({ apiBase }) {
   const [season, setSeason] = useState(new Date().getFullYear())
   const API_BASE = apiBase || import.meta.env?.VITE_API_URL || 'https://minev2-production-84a2.up.railway.app'
 
+  const [lastUpdate, setLastUpdate] = useState(null)
+
+  useEffect(() => {
+    fetch(`${API_BASE}/sdi/batting?season=${season}&signal=breakout&min_pa=10&limit=1&sort_by=net_sdi`)
+      .then(r=>r.json())
+      .then(d=>{ const r = d.results?.[0]; if(r?.computed_at) setLastUpdate(r.computed_at) })
+      .catch(()=>{})
+  }, [season, API_BASE])
+
   return (
     <div style={{minHeight:'100vh',background:T.bgPage,padding:'20px 16px 40px',fontFamily:T.font}}>
 
@@ -230,6 +239,23 @@ export default function FortuneTeller({ apiBase }) {
           reliability weights. Confidence grows as sample size increases. Click any
           player to see the metric-by-metric breakdown.
         </p>
+      </div>
+
+      {/* Data freshness banner */}
+      <div style={{
+        display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',
+        background:'#0d1a0d',border:'1px solid #1a3a1a',
+        borderLeft:'3px solid #d4a800',
+        borderRadius:5,padding:'8px 14px',marginBottom:16,
+      }}>
+        <span style={{fontSize:10,color:'#d4a800',fontFamily:T.font,letterSpacing:'0.06em'}}>
+          ⚠ DATA FRESHNESS
+        </span>
+        <span style={{fontSize:11,color:T.textMid,fontFamily:T.font,flex:1}}>
+          {lastUpdate
+            ? `SDI last computed ${lastUpdate} · Statcast (xwOBA, EV, Barrel%, HardHit%) updates ~noon ET daily · Run update_all.command after noon to refresh`
+            : 'Loading data timestamp...'}
+        </span>
       </div>
 
       {/* Controls */}
