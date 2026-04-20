@@ -39,10 +39,11 @@ function ConfidenceBar({ pct }) {
   )
 }
 
-function MetricPill({ label, current, career, reliability, sustained }) {
-  const up = sustained > 0
+function MetricPill({ label, current, career, reliability, sustained, normalized }) {
+  const up = normalized != null ? normalized > 0 : sustained > 0
   const color = up ? T.green : T.red
   const fmt = v => v == null ? '—' : Math.abs(v) < 1 ? Number(v).toFixed(3) : Number(v).toFixed(1)
+  const normPct = Math.min(Math.abs((normalized||0)) * 200, 100)  // scale 0.5 → 100%
   return (
     <div style={{
       background:T.bgPage,border:`1px solid ${up?T.greenDim:T.redDim}`,
@@ -53,12 +54,16 @@ function MetricPill({ label, current, career, reliability, sustained }) {
         <span style={{fontSize:12,color:T.textHi,fontFamily:T.font}}>{fmt(current)}</span>
         <span style={{fontSize:9,color:T.textLow}}>vs</span>
         <span style={{fontSize:11,color:T.textMid,fontFamily:T.font}}>{fmt(career)}</span>
-        <span style={{fontSize:11,color,marginLeft:'auto',fontWeight:700}}>
-          {up?'+':''}{fmt(sustained)}
+        <span style={{fontSize:10,color,marginLeft:'auto',fontWeight:700}}>
+          {normalized != null ? `${up?'+':''}${Number(normalized).toFixed(3)}` : `${up?'+':''}${fmt(sustained)}`}
         </span>
       </div>
+      {/* Bar shows normalized deviation magnitude */}
       <div style={{height:2,background:T.border,borderRadius:1,overflow:'hidden'}}>
-        <div style={{height:'100%',width:`${reliability}%`,background:color,borderRadius:1,opacity:0.7}}/>
+        <div style={{height:'100%',width:`${normPct}%`,background:color,borderRadius:1,opacity:0.7}}/>
+      </div>
+      <div style={{fontSize:8,color:T.textLow,display:'flex',justifyContent:'space-between'}}>
+        <span>{reliability}% reliable</span>
       </div>
     </div>
   )
@@ -137,6 +142,7 @@ function PlayerCard({ player, rank }) {
               current={m.current} career={m.career}
               reliability={m.reliability_pct}
               sustained={m.sustained_deviation}
+              normalized={m.normalized_deviation}
             />
           ))}
           <div style={{

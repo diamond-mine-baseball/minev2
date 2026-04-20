@@ -11,6 +11,8 @@ const Fantasy      = lazy(() => import('./tabs/Fantasy'))
 const DRS          = lazy(() => import('./tabs/DRS'))
 const MLB2026      = lazy(() => import('./tabs/MLB2026'))
 const FortuneTeller = lazy(() => import('./tabs/FortuneTeller'))
+const SDIExplainer = lazy(() => import('./tabs/SDIExplainer'))
+
 
 const TABS = [
   { id: 'scoreboard',  label: 'SCOREBOARD',   icon: '⬡' },
@@ -21,6 +23,7 @@ const TABS = [
   { id: 'drs',         label: 'DRS',          icon: '◎' },
   { id: 'mlb2026',    label: 'MLB 2026',     icon: '◈' },
   { id: 'fortune',    label: '🔮 FORTUNE',  icon: '◈' },
+  { id: 'sdi',  label: 'SDI ℹ',  icon: '◈' },
 ]
 
 const CONTENT = {
@@ -32,6 +35,7 @@ const CONTENT = {
   drs:         <DRS />,
   mlb2026:     <MLB2026 />,
   fortune:     <FortuneTeller />,
+  sdi: <SDIExplainer />,
 }
 
 export default function App() {
