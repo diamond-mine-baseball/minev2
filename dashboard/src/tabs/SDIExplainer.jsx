@@ -560,7 +560,7 @@ export default function SDIExplainer() {
             {
               label:"STEP 5 — WEIGHTED AVERAGE → NET SDI",
               formula:"net_sdi = Σ(norm_dev × metric_weight) / Σ(metric_weights)\n\nExample with 3 metrics:\n  xwOBA:      norm=+0.40, weight=3.0  → 1.20\n  barrel_pct: norm=+0.70, weight=2.0  → 1.40\n  k_pct:      norm=-0.05, weight=0.5  → -0.025\n  ─────────────────────────────────────────────\n  net_sdi = (1.20+1.40-0.025) / (3.0+2.0+0.5)\n          = 2.575 / 5.5 = +0.468",
-              explanation="The final SDI value is a weighted average of all normalized deviations. High-weight metrics (OPS+, xwOBA) can move the needle significantly; low-weight metrics (K%) nudge it modestly."
+              explanation:"The final SDI value is a weighted average of all normalized deviations. High-weight metrics (OPS+, xwOBA) can move the needle significantly; low-weight metrics (K%) nudge it modestly."
             },
             {
               label:"STEP 6 — OVERALL CONFIDENCE",
