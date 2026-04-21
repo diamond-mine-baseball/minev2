@@ -1,18 +1,21 @@
 // DiamondMine design tokens — single source of truth for all styling
+
 export const T = {
-  // Colors
-  bg:       '#070906',
-  bgCard:   '#0c0f09',
-  bgHover:  '#0e1209',
-  border:   '#161a0e',
-  borderHi: '#1e2a10',
-  accent:   '#C8F135',
-  accentDim:'#8cc830',
-  accentMid:'#6aaa22',
-  textHi:   '#d4e89a',
-  textMid:  '#8aaa60',
-  textLow:  '#3a5a20',
-  textMute: '#1e2e10',
+  // Colors — dark purple palette
+  bg:        '#07060f',
+  bgCard:    '#0d0b1a',
+  bgHover:   '#111026',
+  border:    '#1c1838',
+  borderHi:  '#2e2860',
+
+  accent:    '#c084fc',   // bright lilac — replaces lime green
+  accentDim: '#7c3aed',
+  accentMid: '#a855f7',
+
+  textHi:   '#f5f0ff',   // near-white with slight purple tint
+  textMid:  '#c4b5e8',
+  textLow:  '#6b5fa0',
+  textMute: '#3d3460',
 
   // Typography
   fontDisplay: "'Bebas Neue', sans-serif",
@@ -25,44 +28,44 @@ export const T = {
 // CSS string injected into document for global vars
 export const globalCSS = `
   :root {
-    --accent:    ${T.accent};
-    --bg:        ${T.bg};
-    --bg-card:   ${T.bgCard};
-    --border:    ${T.border};
-    --text-hi:   ${T.textHi};
-    --text-mid:  ${T.textMid};
-    --text-low:  ${T.textLow};
+    --accent:   ${T.accent};
+    --bg:       ${T.bg};
+    --bg-card:  ${T.bgCard};
+    --border:   ${T.border};
+    --text-hi:  ${T.textHi};
+    --text-mid: ${T.textMid};
+    --text-low: ${T.textLow};
   }
 `
 
 // Shared inline style helpers
 export const S = {
   card: {
-    background:  T.bgCard,
-    border:      `1px solid ${T.border}`,
+    background:   T.bgCard,
+    border:       `1px solid ${T.border}`,
     borderRadius: 3,
-    padding:     '16px',
+    padding:      '16px',
   },
   cardHover: {
-    background:  T.bgCard,
-    border:      `1px solid ${T.border}`,
+    background:   T.bgCard,
+    border:       `1px solid ${T.border}`,
     borderRadius: 3,
-    padding:     '16px',
-    cursor:      'pointer',
-    transition:  'border-color .15s',
+    padding:      '16px',
+    cursor:       'pointer',
+    transition:   'border-color .15s',
   },
   label: {
-    fontSize:       9,
-    letterSpacing:  '0.18em',
-    color:          T.textLow,
-    fontFamily:     T.fontMono,
+    fontSize:      9,
+    letterSpacing: '0.18em',
+    color:         T.textLow,
+    fontFamily:    T.fontMono,
   },
   sectionTitle: {
-    fontFamily:     T.fontDisplay,
-    fontSize:       32,
-    letterSpacing:  '0.04em',
-    color:          T.accent,
-    lineHeight:     1,
+    fontFamily:    T.fontDisplay,
+    fontSize:      32,
+    letterSpacing: '0.04em',
+    color:         T.accent,
+    lineHeight:    1,
   },
   eyebrow: {
     fontSize:      9,
@@ -71,8 +74,8 @@ export const S = {
     fontFamily:    T.fontMono,
   },
   pill: (active) => ({
-    background:    active ? T.accent     : T.bgCard,
-    color:         active ? T.bg         : T.textMid,
+    background:    active ? T.accent : T.bgCard,
+    color:         active ? T.bg : T.textMid,
     border:        `1px solid ${active ? T.accent : T.border}`,
     borderRadius:  2,
     padding:       '3px 10px',
@@ -86,29 +89,29 @@ export const S = {
 
 // Chart.js shared config
 export const chartDefaults = {
-  responsive: true,
+  responsive:          true,
   maintainAspectRatio: false,
   plugins: {
-    legend: { display: false },
+    legend:  { display: false },
     tooltip: {
-      backgroundColor: '#0e1209',
-      borderColor:     '#1e2a10',
+      backgroundColor: '#0d0b1a',
+      borderColor:     '#2e2860',
       borderWidth:     1,
-      titleColor:      '#C8F135',
-      bodyColor:       '#8aaa60',
-      titleFont:       { family: "'Bebas Neue'", size: 14 },
-      bodyFont:        { family: "'DM Mono'",    size: 11 },
-      padding:         10,
+      titleColor:      '#c084fc',
+      bodyColor:       '#c4b5e8',
+      titleFont: { family: "'Bebas Neue'", size: 14 },
+      bodyFont:  { family: "'DM Mono'",   size: 11 },
+      padding:   10,
     },
   },
   scales: {
     x: {
-      grid:  { color: '#0e1209', drawBorder: false },
-      ticks: { color: '#3a5a20', font: { family: "'DM Mono'", size: 10 } },
+      grid:  { color: '#0d0b1a', drawBorder: false },
+      ticks: { color: '#6b5fa0', font: { family: "'DM Mono'", size: 10 } },
     },
     y: {
-      grid:  { color: '#111508', drawBorder: false },
-      ticks: { color: '#3a5a20', font: { family: "'DM Mono'", size: 10 } },
+      grid:  { color: '#111026', drawBorder: false },
+      ticks: { color: '#6b5fa0', font: { family: "'DM Mono'", size: 10 } },
     },
   },
 }

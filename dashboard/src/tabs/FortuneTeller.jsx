@@ -3,13 +3,13 @@ import Headshot from '../components/ui/Headshot'
 
 // Theme tokens
 const T = {
-  bgPage:'#0a0e0a',bgCard:'#0f1a0f',bgCardHi:'#132013',
-  border:'#1e2e1e',borderHi:'#2a4a2a',
-  green:'#39ff14',greenDim:'#1a6e00',
-  textHi:'#e8f5e8',textMid:'#8aab8a',textLow:'#4a664a',
-  gold:'#d4a800',goldDim:'#6b5200',
-  red:'#ff4444',redDim:'#6b1414',
-  blue:'#4488ff',blueDim:'#1a3366',
+  bgPage:'#07060f',bgCard:'#0d0b1a',bgCardHi:'#111026',
+  border:'#1c1838',borderHi:'#2e2860',
+  green:'#c084fc',greenDim:'#5b21b6',
+  textHi:'#f5f0ff',textMid:'#c4b5e8',textLow:'#6b5fa0',
+  gold:'#f59e0b',goldDim:'#78350f',
+  red:'#f87171',redDim:'#7f1d1d',
+  blue:'#818cf8',blueDim:'#1e1b4b',
   font:'"DM Mono", monospace',
   fontDisp:'"Bebas Neue", sans-serif',
 }
@@ -245,10 +245,10 @@ export default function FortuneTeller({ apiBase }) {
       <div style={{
         display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',
         background:'#0d1a0d',border:'1px solid #1a3a1a',
-        borderLeft:'3px solid #d4a800',
+        borderLeft:'3px solid #f59e0b',
         borderRadius:5,padding:'8px 14px',marginBottom:16,
       }}>
-        <span style={{fontSize:10,color:'#d4a800',fontFamily:T.font,letterSpacing:'0.06em'}}>
+        <span style={{fontSize:10,color:'#f59e0b',fontFamily:T.font,letterSpacing:'0.06em'}}>
           ⚠ DATA FRESHNESS
         </span>
         <span style={{fontSize:11,color:T.textMid,fontFamily:T.font,flex:1}}>

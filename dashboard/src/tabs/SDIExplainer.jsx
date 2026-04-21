@@ -1,20 +1,20 @@
 import React, { useState } from 'react'
 
 const T = {
-  bg:       '#0a0e0a',
-  bgCard:   '#0d150d',
-  bgHi:     '#111a11',
-  border:   '#1a2a1a',
-  borderHi: '#2a4a2a',
-  green:    '#39ff14',
+  bg:       '#07060f',
+  bgCard:   '#0d0b1a',
+  bgHi:     '#111026',
+  border:   '#1c1838',
+  borderHi: '#2e2860',
+  green:    '#c084fc',
   greenDim: '#1a5a00',
-  gold:     '#d4a800',
+  gold:     '#f59e0b',
   goldDim:  '#5a4500',
-  red:      '#ff4444',
+  red:      '#f87171',
   blue:     '#44aaff',
-  text:     '#c8e0c8',
-  textMid:  '#7a9a7a',
-  textLow:  '#4a6a4a',
+  text:     '#f5f0ff',
+  textMid:  '#c4b5e8',
+  textLow:  '#6b5fa0',
   mono:     '"DM Mono", monospace',
   disp:     '"Bebas Neue", sans-serif',
 }
@@ -25,8 +25,8 @@ const css = `
     to   { opacity:1; transform:translateY(0); }
   }
   @keyframes glow {
-    0%,100% { text-shadow: 0 0 20px #39ff1444; }
-    50%      { text-shadow: 0 0 40px #39ff1488; }
+    0%,100% { text-shadow: 0 0 20px #c084fc44; }
+    50%      { text-shadow: 0 0 40px #c084fc88; }
   }
   .sdi-section { animation: fadeUp 0.5s ease both; }
   .sdi-section:nth-child(1) { animation-delay: 0.05s }
@@ -35,9 +35,9 @@ const css = `
   .sdi-section:nth-child(4) { animation-delay: 0.20s }
   .sdi-section:nth-child(5) { animation-delay: 0.25s }
   .sdi-title { animation: glow 3s ease-in-out infinite; }
-  .metric-row:hover { background: #111a11 !important; }
+  .metric-row:hover { background: #111026 !important; }
   .faq-item { cursor: pointer; }
-  .faq-item:hover > div:first-child { color: #39ff14 !important; }
+  .faq-item:hover > div:first-child { color: #c084fc !important; }
 `
 
 function Tag({ color, children }) {
