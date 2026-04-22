@@ -959,6 +959,296 @@ def _compute_pitcher_sdi(conn, current, season):
     }
 
 
+# ── Economics ──────────────────────────────────────────────────────────────────
+
+def _econ_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+@app.get("/economics/market-rates")
+def get_market_rates():
+    """
+    $/WAR implied market rate per FA class year (1991–present).
+    Used for era-normalized contract comparison and the market rate trend chart.
+    """
+    conn = _econ_db()
+    rows = conn.execute("""
+        SELECT season, dollars_per_war, sample_size, total_contracts, match_rate
+        FROM market_rates
+        ORDER BY season
+    """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@app.get("/economics/leaderboard")
+def get_economics_leaderboard(
+    position_group: Optional[str] = Query(None, description="SP, RP, C, 1B, 2B, 3B, SS, OF, DH, UTIL"),
+    status:         Optional[str] = Query(None, description="complete, active, future"),
+    team:           Optional[str] = Query(None, description="3-letter team code e.g. NYA"),
+    era_start:      Optional[int] = Query(None, description="FA class year start"),
+    era_end:        Optional[int] = Query(None, description="FA class year end"),
+    sort_by:        str           = Query("realized_surplus", description="realized_surplus | expected_surplus | aav | total_realized_war | pct_of_cbt"),
+    order:          str           = Query("desc", description="asc | desc"),
+    min_years:      int           = Query(2, description="Minimum contract length"),
+    limit:          int           = Query(50, ge=1, le=200),
+):
+    """
+    Contract value leaderboard — filterable by position, era, team, and status.
+    Sort by realized surplus (team win/loss), AAV, WAR delivered, or CBT allocation.
+    """
+    valid_sorts = {"realized_surplus", "expected_surplus", "aav", "total_realized_war", "pct_of_cbt"}
+    if sort_by not in valid_sorts:
+        sort_by = "realized_surplus"
+    order_sql = "ASC" if order == "asc" else "DESC"
+
+    filters = ["cv.years >= :min_years", "cv.aav IS NOT NULL"]
+    params: dict = {"min_years": min_years, "limit": limit}
+
+    if position_group:
+        filters.append("cv.position_group = :position_group")
+        params["position_group"] = position_group.upper()
+    if status:
+        filters.append("cv.contract_status = :status")
+        params["status"] = status
+    if team:
+        filters.append("cv.new_team = :team")
+        params["team"] = team.upper()
+    if era_start:
+        filters.append("cv.signing_class >= :era_start")
+        params["era_start"] = era_start
+    if era_end:
+        filters.append("cv.signing_class <= :era_end")
+        params["era_end"] = era_end
+
+    where = "WHERE " + " AND ".join(filters)
+
+    sort_col = (
+        "ROUND(cv.aav / ct.threshold * 100, 2)"
+        if sort_by == "pct_of_cbt"
+        else f"cv.{sort_by}"
+    )
+
+    conn = _econ_db()
+    rows = conn.execute(f"""
+        SELECT
+            cv.name,
+            cv.signing_class,
+            cv.position,
+            cv.position_group,
+            cv.new_team,
+            cv.age_at_signing,
+            cv.years,
+            cv.aav,
+            cv.guarantee,
+            cv.contract_status,
+            cv.baseline_war,
+            cv.expected_war_total,
+            cv.expected_war_per_season,
+            cv.seasons_played,
+            cv.total_realized_war,
+            cv.market_rate_at_signing,
+            cv.realized_market_value,
+            cv.realized_surplus,
+            cv.expected_surplus,
+            ct.threshold                                     AS cbt_threshold,
+            ROUND(cv.aav / ct.threshold * 100, 2)           AS pct_of_cbt,
+            ROUND(cv.aav / tp.opening_day_payroll * 100, 2) AS pct_of_payroll,
+            cv.war_by_season_json
+        FROM contract_valuations cv
+        LEFT JOIN cbt_thresholds ct ON cv.signing_class = ct.season
+        LEFT JOIN team_payrolls  tp ON cv.new_team = tp.team
+                                    AND cv.term_start = tp.season
+        {where}
+        ORDER BY {sort_col} {order_sql} NULLS LAST
+        LIMIT :limit
+    """, params).fetchall()
+    conn.close()
+
+    import json as _json
+    results = []
+    for r in rows:
+        d = dict(r)
+        if d.get("war_by_season_json"):
+            try:
+                d["war_by_season"] = _json.loads(d["war_by_season_json"])
+            except Exception:
+                d["war_by_season"] = {}
+        del d["war_by_season_json"]
+        results.append(d)
+
+    return results
+
+
+@app.get("/economics/player")
+def get_player_economics(
+    name: str = Query(..., description="Player name e.g. 'Max Scherzer'"),
+):
+    """
+    All FA contracts for a single player with full valuation details.
+    Returns contracts sorted chronologically plus a career surplus summary.
+    """
+    import json as _json
+
+    conn = _econ_db()
+    rows = conn.execute("""
+        SELECT
+            cv.*,
+            ct.threshold                                     AS cbt_threshold,
+            ROUND(cv.aav / ct.threshold * 100, 2)           AS pct_of_cbt,
+            ROUND(cv.aav / tp.opening_day_payroll * 100, 2) AS pct_of_payroll
+        FROM contract_valuations cv
+        LEFT JOIN cbt_thresholds ct ON cv.signing_class = ct.season
+        LEFT JOIN team_payrolls  tp ON cv.new_team = tp.team
+                                    AND cv.term_start = tp.season
+        WHERE cv.name = :name OR cv.canonical_name = :name
+        ORDER BY cv.signing_class
+    """, {"name": name}).fetchall()
+
+    if not rows:
+        rows = conn.execute("""
+            SELECT
+                cv.*,
+                ct.threshold                                     AS cbt_threshold,
+                ROUND(cv.aav / ct.threshold * 100, 2)           AS pct_of_cbt,
+                ROUND(cv.aav / tp.opening_day_payroll * 100, 2) AS pct_of_payroll
+            FROM contract_valuations cv
+            LEFT JOIN cbt_thresholds ct ON cv.signing_class = ct.season
+            LEFT JOIN team_payrolls  tp ON cv.new_team = tp.team
+                                        AND cv.term_start = tp.season
+            WHERE LOWER(cv.name) LIKE LOWER(:pattern)
+               OR LOWER(cv.canonical_name) LIKE LOWER(:pattern)
+            ORDER BY cv.signing_class
+        """, {"pattern": f"%{name}%"}).fetchall()
+
+    conn.close()
+
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"No contracts found for '{name}'")
+
+    contracts = []
+    for r in rows:
+        d = dict(r)
+        if d.get("war_by_season_json"):
+            try:
+                d["war_by_season"] = _json.loads(d["war_by_season_json"])
+            except Exception:
+                d["war_by_season"] = {}
+        if "war_by_season_json" in d:
+            del d["war_by_season_json"]
+        contracts.append(d)
+
+    completed = [c for c in contracts if c["contract_status"] == "complete" and c.get("realized_surplus") is not None]
+    total_surplus   = sum(c["realized_surplus"] for c in completed)
+    total_war       = sum(c["total_realized_war"] or 0 for c in completed)
+    total_guarantee = sum(c["guarantee"] or 0 for c in contracts)
+
+    return {
+        "name": contracts[0]["name"],
+        "contracts": contracts,
+        "summary": {
+            "total_contracts":          len(contracts),
+            "completed_contracts":      len(completed),
+            "total_guarantee":          total_guarantee,
+            "total_realized_war":       round(total_war, 1),
+            "total_surplus":            round(total_surplus, 0),
+            "avg_surplus_per_contract": round(total_surplus / len(completed), 0) if completed else None,
+        }
+    }
+
+
+@app.get("/economics/team")
+def get_team_economics(
+    team:      str           = Query(..., description="3-letter team code e.g. LAN"),
+    era_start: Optional[int] = Query(None),
+    era_end:   Optional[int] = Query(None),
+    sort_by:   str           = Query("signing_class", description="signing_class | realized_surplus | aav"),
+    order:     str           = Query("desc"),
+):
+    """
+    Full FA contract history for a team with surplus summary.
+    Useful for evaluating a franchise's track record in free agency.
+    """
+    order_sql = "ASC" if order == "asc" else "DESC"
+
+    filters = ["cv.new_team = :team", "cv.aav IS NOT NULL"]
+    params: dict = {"team": team.upper()}
+
+    if era_start:
+        filters.append("cv.signing_class >= :era_start")
+        params["era_start"] = era_start
+    if era_end:
+        filters.append("cv.signing_class <= :era_end")
+        params["era_end"] = era_end
+
+    where = "WHERE " + " AND ".join(filters)
+    valid_sorts = {"signing_class", "realized_surplus", "aav", "total_realized_war"}
+    if sort_by not in valid_sorts:
+        sort_by = "signing_class"
+
+    conn = _econ_db()
+
+    rows = conn.execute(f"""
+        SELECT
+            cv.name,
+            cv.signing_class,
+            cv.position_group,
+            cv.age_at_signing,
+            cv.years,
+            cv.aav,
+            cv.guarantee,
+            cv.contract_status,
+            cv.total_realized_war,
+            cv.realized_surplus,
+            cv.expected_surplus,
+            ct.threshold                                     AS cbt_threshold,
+            ROUND(cv.aav / ct.threshold * 100, 2)           AS pct_of_cbt,
+            ROUND(cv.aav / tp.opening_day_payroll * 100, 2) AS pct_of_payroll
+        FROM contract_valuations cv
+        LEFT JOIN cbt_thresholds ct ON cv.signing_class = ct.season
+        LEFT JOIN team_payrolls  tp ON cv.new_team = tp.team
+                                    AND cv.term_start = tp.season
+        {where}
+        ORDER BY cv.{sort_by} {order_sql} NULLS LAST
+    """, params).fetchall()
+
+    if not rows:
+        conn.close()
+        raise HTTPException(status_code=404, detail=f"No contracts found for team '{team}'")
+
+    payrolls = conn.execute("""
+        SELECT season, opening_day_payroll, cb_tax_payroll
+        FROM team_payrolls
+        WHERE team = :team
+        ORDER BY season DESC
+    """, {"team": team.upper()}).fetchall()
+    conn.close()
+
+    contracts = [dict(r) for r in rows]
+    completed = [c for c in contracts if c["contract_status"] == "complete" and c.get("realized_surplus") is not None]
+    wins   = [c for c in completed if (c["realized_surplus"] or 0) > 0]
+    losses = [c for c in completed if (c["realized_surplus"] or 0) <= 0]
+
+    return {
+        "team": team.upper(),
+        "contracts": contracts,
+        "payroll_history": [dict(r) for r in payrolls],
+        "summary": {
+            "total_contracts":      len(contracts),
+            "completed_contracts":  len(completed),
+            "total_spent":          sum(c["guarantee"] or 0 for c in contracts),
+            "total_surplus":        round(sum(c["realized_surplus"] for c in completed), 0),
+            "wins":                 len(wins),
+            "losses":               len(losses),
+            "win_rate":             round(len(wins) / len(completed) * 100, 1) if completed else None,
+            "best_contract":        max(completed, key=lambda c: c["realized_surplus"])["name"] if completed else None,
+            "worst_contract":       min(completed, key=lambda c: c["realized_surplus"])["name"] if completed else None,
+        }
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     port = int(_os.getenv("PORT", 5001))

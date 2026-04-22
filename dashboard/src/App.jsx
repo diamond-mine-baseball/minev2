@@ -12,6 +12,7 @@ const DRS          = lazy(() => import('./tabs/DRS'))
 const MLB2026      = lazy(() => import('./tabs/MLB2026'))
 const FortuneTeller = lazy(() => import('./tabs/FortuneTeller'))
 const SDIExplainer = lazy(() => import('./tabs/SDIExplainer'))
+const ContractEconomics = lazy(() => import('./tabs/ContractEconomics'))
 
 
 const TABS = [
@@ -24,6 +25,7 @@ const TABS = [
   { id: 'mlb2026',    label: 'MLB 2026',     icon: '◈' },
   { id: 'fortune',    label: '🔮 FORTUNE',  icon: '◈' },
   { id: 'sdi',  label: 'SDI ℹ',  icon: '◈' },
+  { id: 'contracts', label: 'CONTRACTS', icon: '◈' },
 ]
 
 const CONTENT = {
@@ -35,7 +37,8 @@ const CONTENT = {
   drs:         <DRS />,
   mlb2026:     <MLB2026 />,
   fortune:     <FortuneTeller />,
-  sdi: <SDIExplainer />,
+  sdi:       <SDIExplainer />,
+  contracts: <ContractEconomics />,
 }
 
 export default function App() {
