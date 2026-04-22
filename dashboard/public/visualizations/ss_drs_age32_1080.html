@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>Top SS DRS Seasons — Age 32</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 1920px; height: 1080px;
+  overflow: hidden;
+  background: #111115;
+  color: #e8e6e0;
+  font-family: 'IBM Plex Sans', sans-serif;
+}
+
+.frame {
+  width: 1920px; height: 1080px;
+  display: flex; flex-direction: column;
+  padding: 52px 96px 36px;
+}
+
+/* ── MASTHEAD ── */
+.masthead {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  margin-bottom: 36px; flex-shrink: 0;
+  opacity: 0; animation: fadeDown 0.7s ease forwards 0.2s;
+}
+.masthead-left { border-left: 4px solid #c8952a; padding-left: 24px; }
+.masthead-eyebrow {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px; letter-spacing: .16em;
+  color: #c8952a; text-transform: uppercase; margin-bottom: 8px;
+}
+.masthead-title {
+  font-family: 'Playfair Display', serif;
+  font-size: 58px; font-weight: 900;
+  color: #f0ede6; line-height: 1.05; margin-bottom: 6px;
+}
+.masthead-sub {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 15px; color: #6b6a66; letter-spacing: .06em;
+}
+.masthead-right {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px; color: #2a2a30; letter-spacing: .12em;
+  text-align: right;
+}
+.masthead-right span { color: #3a3a42; }
+
+/* ── COLUMN HEADERS ── */
+.col-heads {
+  display: grid;
+  grid-template-columns: 56px 90px 1fr 90px 380px 220px;
+  gap: 0 20px; padding: 0 12px 10px;
+  border-bottom: 1px solid #1e1e24;
+  margin-bottom: 8px; flex-shrink: 0;
+  opacity: 0; animation: fadeUp 0.5s ease forwards 0.6s;
+}
+.col-head {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px; letter-spacing: .18em;
+  color: #2a2a30; text-transform: uppercase;
+}
+
+/* ── ROWS ── */
+.rows { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+
+.row {
+  display: grid;
+  grid-template-columns: 56px 90px 1fr 90px 380px 220px;
+  gap: 0 20px; align-items: center;
+  padding: 12px 16px;
+  border-radius: 6px;
+  background: #16161a;
+  border: 1px solid #1e1e24;
+  border-left: 4px solid #2a2a30;
+  position: relative; overflow: hidden;
+  opacity: 0; transform: translateX(-32px);
+  flex: 1;
+}
+
+/* WAR bar background */
+.row::before {
+  content: '';
+  position: absolute; top: 0; left: 0; bottom: 0;
+  width: var(--bar-pct, 0%);
+  background: var(--bar-color, rgba(74,74,80,0.08));
+  border-radius: 0;
+  transition: width 1s cubic-bezier(0.16,1,0.3,1);
+  pointer-events: none;
+}
+
+.row.r1 { border-left-color: #c8952a; --bar-color: rgba(200,149,42,0.10); }
+.row.r2 { border-left-color: #a07028; --bar-color: rgba(160,112,40,0.08); }
+.row.mookie {
+  border-left-color: #4a8bbf;
+  background: #0f1620;
+  border-color: #1a3050;
+  border-left-color: #4a8bbf;
+  --bar-color: rgba(74,139,191,0.10);
+}
+.row.mookie::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, rgba(74,139,191,0.06) 0%, transparent 50%);
+  pointer-events: none;
+}
+
+/* ── RANK ── */
+.rank-num {
+  font-family: 'Playfair Display', serif;
+  font-size: 36px; font-weight: 700;
+  text-align: center; line-height: 1; color: #2a2a30;
+  position: relative; z-index: 1;
+}
+.r1 .rank-num  { color: #c8952a; }
+.r2 .rank-num  { color: #a07028; }
+.mookie .rank-num { color: #4a8bbf; }
+
+/* ── HEADSHOT ── */
+.hs-wrap {
+  width: 74px; height: 88px;
+  border-radius: 7px;
+  overflow: hidden;
+  border: 2px solid #2a2a30;
+  background: #1e1e24;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 15px; font-weight: 500; color: #4a4a50;
+  flex-shrink: 0; position: relative; z-index: 1;
+}
+.r1 .hs-wrap   { border-color: #5a3d0f; }
+.r2 .hs-wrap   { border-color: #3d2e0a; }
+.mookie .hs-wrap { border-color: #1a3050; }
+.hs-wrap img {
+  width: 100%; height: 100%;
+  object-fit: cover; object-position: center 12%;
+  display: block;
+}
+
+/* ── PLAYER INFO ── */
+.player-info { position: relative; z-index: 1; min-width: 0; }
+.player-name {
+  font-family: 'Playfair Display', serif;
+  font-size: 26px; font-weight: 700;
+  color: #e0ddd6; line-height: 1.1;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+.r1 .player-name   { color: #f0ede6; }
+.mookie .player-name { color: #7ec8e3; }
+
+.player-sub {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px; color: #3a3a42; letter-spacing: .06em;
+  display: flex; align-items: center; gap: 8px;
+}
+.active-badge {
+  background: rgba(74,139,191,0.15);
+  border: 1px solid rgba(74,139,191,0.3);
+  color: #4a8bbf;
+  font-size: 9px; letter-spacing: .14em;
+  padding: 2px 6px; border-radius: 3px; line-height: 1.6;
+}
+
+/* ── DRS VALUE ── */
+.drs-val {
+  font-family: 'Playfair Display', serif;
+  font-size: 36px; font-weight: 700;
+  text-align: right; line-height: 1; color: #4a4a50;
+  position: relative; z-index: 1;
+}
+.r1 .drs-val   { color: #c8952a; }
+.r2 .drs-val   { color: #a07028; }
+.mookie .drs-val { color: #4a8bbf; }
+
+/* ── BAR ── */
+.bar-area { position: relative; z-index: 1; }
+.bar-track {
+  width: 100%; height: 8px;
+  background: #1e1e24; border-radius: 4px; overflow: hidden;
+}
+.bar-fill {
+  height: 100%; border-radius: 4px; width: 0%;
+  transition: width 1s cubic-bezier(0.16,1,0.3,1);
+  background: #2a2a30;
+}
+.r1 .bar-fill   { background: linear-gradient(90deg, #7a4f0a, #c8952a); }
+.r2 .bar-fill   { background: linear-gradient(90deg, #5a3a0a, #a07028); }
+.mookie .bar-fill { background: linear-gradient(90deg, #1a3050, #4a8bbf); }
+
+/* ── CONTEXT ── */
+.ctx-panel {
+  display: flex; flex-direction: column;
+  align-items: flex-end; justify-content: center;
+  gap: 3px; position: relative; z-index: 1;
+}
+.ctx-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px; letter-spacing: .14em;
+  color: #2a2a30; text-transform: uppercase; line-height: 1;
+}
+.ctx-val {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px; color: #3a3a42; line-height: 1.3;
+  text-align: right;
+}
+.mookie .ctx-label { color: #1a3050; }
+.mookie .ctx-val   { color: #2a4a70; }
+
+/* ── FOOTER ── */
+.footer {
+  flex-shrink: 0;
+  display: flex; justify-content: space-between; align-items: center;
+  padding-top: 14px; margin-top: 8px;
+  border-top: 1px solid #1e1e24;
+  opacity: 0; animation: fadeUp 0.4s ease forwards 2.2s;
+}
+.footer-note {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px; color: #2a2a30; letter-spacing: .08em;
+}
+.footer-logo {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px; color: #2a2a30; letter-spacing: .12em;
+}
+.footer-logo span { color: #3a3a42; }
+
+@keyframes fadeDown {
+  from { opacity: 0; transform: translateY(-14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-32px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+</style>
+</head>
+<body>
+<div class="frame">
+
+  <div class="masthead">
+    <div class="masthead-left">
+      <div class="masthead-eyebrow">Sports Info Solutions · Defensive Runs Saved · 2003–2025 · Min 500 Inn</div>
+      <div class="masthead-title">Best DRS Seasons at Age 32</div>
+      <div class="masthead-sub">Shortstop — All Time</div>
+    </div>
+    <div class="masthead-right">DIAMOND<span>MINE</span></div>
+  </div>
+
+  <div class="col-heads">
+    <div class="col-head" style="text-align:center">#</div>
+    <div class="col-head"></div>
+    <div class="col-head">Player · Season</div>
+    <div class="col-head" style="text-align:right">DRS</div>
+    <div class="col-head" style="padding-left:4px">Relative to Leader (+21)</div>
+    <div class="col-head" style="text-align:right">Context</div>
+  </div>
+
+  <div class="rows" id="rows"></div>
+
+  <div class="footer">
+    <div class="footer-note">Data: Sports Info Solutions via FieldingBible.com &nbsp;·&nbsp; Visualization: DiamondMine &nbsp;·&nbsp; All players listed at age 32</div>
+    <div class="footer-logo">DIAMOND<span>MINE</span></div>
+  </div>
+
+</div>
+<script>
+const MAX_DRS = 21;
+
+const DATA = [
+  { rank:1, rc:'r1',  mookie:false, player:'John McDonald',  season:2007, drs:21, hs:'https://cdn.jsdelivr.net/gh/diamond-mine-baseball/dataservice@main/headshots/John_McDonald_TOR_2009.jpg',     initials:'JM', ctx1:'Career High',    ctx2:'Only 32-year-old over 20' },
+  { rank:2, rc:'r2',  mookie:false, player:'Neifi Perez',    season:2005, drs:19, hs:'https://cdn.jsdelivr.net/gh/diamond-mine-baseball/dataservice@main/headshots/Neifi_Perez_DET_2007.jpg',      initials:'NP', ctx1:'Career Year',    ctx2:'Best of his career' },
+  { rank:3, rc:'',    mookie:true,  player:'Mookie Betts',   season:2025, drs:17, hs:'https://cdn.jsdelivr.net/gh/diamond-mine-baseball/dataservice@main/headshots/Mookie_Betts_LAN_2025.jpg',    initials:'MB', ctx1:'Active · 2025',  ctx2:'Converting from OF' },
+  { rank:4, rc:'',    mookie:false, player:'Clint Barmes',   season:2011, drs:16, hs:'https://cdn.jsdelivr.net/gh/diamond-mine-baseball/dataservice@main/headshots/Clint_Barmes_SDN_2015.jpg',    initials:'CB', ctx1:'Prime Defender', ctx2:'3rd best of career' },
+  { rank:5, rc:'',    mookie:false, player:'Jhonny Peralta', season:2014, drs:16, hs:'https://cdn.jsdelivr.net/gh/diamond-mine-baseball/dataservice@main/headshots/Jhonny_Peralta_SLN_2017.jpg',  initials:'JP', ctx1:'Late Prime',     ctx2:'Career high DRS' },
+  { rank:6, rc:'',    mookie:false, player:'Adam Everett',   season:2009, drs:9,  hs:'https://cdn.jsdelivr.net/gh/diamond-mine-baseball/dataservice@main/headshots/Adam_Everett_DET_2009.jpg',    initials:'AE', ctx1:'Veteran',        ctx2:'2nd all-time SS list' },
+  { rank:7, rc:'',    mookie:false, player:'Jack Wilson',    season:2010, drs:9,  hs:'https://cdn.jsdelivr.net/gh/diamond-mine-baseball/dataservice@main/headshots/Jack_Wilson_PIT_2009.jpg',     initials:'JW', ctx1:'Veteran',        ctx2:'3 seasons in top 10' },
+  { rank:8, rc:'',    mookie:false, player:'Miguel Rojas',   season:2021, drs:5,  hs:'https://cdn.jsdelivr.net/gh/diamond-mine-baseball/dataservice@main/headshots/Miguel_Rojas_LAN_2025.jpg',   initials:'MR', ctx1:'Utility Value',  ctx2:'' },
+];
+
+function buildRow(d) {
+  const pct = Math.round((d.drs / MAX_DRS) * 100);
+  const el  = document.createElement('div');
+  el.className = `row ${d.rc}${d.mookie ? ' mookie' : ''}`;
+  el.id = `row-${d.rank}`;
+
+  const activeBadge = d.mookie ? `<span class="active-badge">ACTIVE</span>` : '';
+  const sign = d.drs > 0 ? '+' : '';
+
+  el.innerHTML = `
+    <div class="rank-num">${d.rank}</div>
+    <div class="hs-wrap" id="hs-${d.rank}">${d.initials}</div>
+    <div class="player-info">
+      <div class="player-name">${d.player}${activeBadge}</div>
+      <div class="player-sub">${d.season} &nbsp;·&nbsp; Age 32</div>
+    </div>
+    <div class="drs-val">${sign}${d.drs}</div>
+    <div class="bar-area">
+      <div class="bar-track">
+        <div class="bar-fill" id="bar-${d.rank}" data-pct="${pct}"></div>
+      </div>
+    </div>
+    <div class="ctx-panel">
+      <div class="ctx-label">${d.ctx1}</div>
+      ${d.ctx2 ? `<div class="ctx-val">${d.ctx2}</div>` : ''}
+    </div>`;
+
+  return el;
+}
+
+// Load headshots via CDN
+function loadHS(d) {
+  const img = new Image();
+  img.onload = () => {
+    const wrap = document.getElementById(`hs-${d.rank}`);
+    if (wrap) wrap.innerHTML = `<img src="${d.hs}" alt="${d.player}"/>`;
+  };
+  img.onerror = () => {}; // keep initials fallback
+  img.src = d.hs;
+}
+
+const container = document.getElementById('rows');
+DATA.forEach(d => container.appendChild(buildRow(d)));
+
+// Staggered slide-in animation with bar reveal
+DATA.forEach((d, i) => {
+  const row = document.getElementById(`row-${d.rank}`);
+  const delay = 700 + i * 120;
+
+  setTimeout(() => {
+    row.style.animation = `slideIn 0.5s cubic-bezier(0.22,1,0.36,1) forwards`;
+
+    // Bar animates in slightly after the row slides in
+    setTimeout(() => {
+      const bar = document.getElementById(`bar-${d.rank}`);
+      if (bar) bar.style.width = bar.dataset.pct + '%';
+    }, 320);
+  }, delay);
+});
+
+// Load all headshots
+DATA.forEach(d => loadHS(d));
+</script>
+</body>
+</html>
