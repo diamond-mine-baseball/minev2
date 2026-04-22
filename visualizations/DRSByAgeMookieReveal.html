@@ -2,60 +2,110 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="viewport" content="width=1920"/>
 <title>Average DRS by Age — Top 30 Shortstops</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet"/>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
+
+  html, body {
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
     background: #111115;
     color: #e8e6e0;
     font-family: 'IBM Plex Sans', sans-serif;
-    min-height: 100vh;
-    padding: 48px 24px 80px;
   }
-  .page { max-width: 900px; margin: 0 auto; }
 
-  .masthead { margin-bottom: 40px; border-left: 3px solid #c8952a; padding-left: 20px; }
-  .masthead-eyebrow { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .12em; color: #c8952a; text-transform: uppercase; margin-bottom: 10px; }
-  .masthead-title { font-family: 'Playfair Display', serif; font-size: 36px; font-weight: 900; color: #f0ede6; line-height: 1.15; margin-bottom: 10px; }
-  .masthead-sub { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #6b6a66; letter-spacing: .04em; }
+  .page {
+    width: 1920px;
+    height: 1080px;
+    padding: 52px 80px 40px;
+    display: flex;
+    flex-direction: column;
+  }
 
+  /* ── MASTHEAD ── */
+  .masthead {
+    border-left: 4px solid #c8952a;
+    padding-left: 24px;
+    margin-bottom: 32px;
+    flex-shrink: 0;
+    opacity: 0;
+    animation: fadeDown 0.7s ease forwards 0.3s;
+  }
+  .masthead-eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px; letter-spacing: .16em;
+    color: #c8952a; text-transform: uppercase; margin-bottom: 8px;
+  }
+  .masthead-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 52px; font-weight: 900;
+    color: #f0ede6; line-height: 1.1; margin-bottom: 8px;
+  }
+  .masthead-sub {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 14px; color: #6b6a66; letter-spacing: .06em;
+  }
+
+  /* ── STATS ROW ── */
   .stats-row {
-    display: flex; gap: 12px; margin-bottom: 28px; flex-wrap: wrap;
-    opacity: 0; animation: fadeUp 0.6s ease forwards 0.4s;
+    display: flex; gap: 16px; margin-bottom: 24px; flex-shrink: 0;
+    opacity: 0; animation: fadeUp 0.6s ease forwards 0.6s;
   }
   .stat-card {
-    flex: 1; min-width: 110px;
+    flex: 1;
     background: #16161a; border: 1px solid #1e1e24; border-radius: 6px;
-    padding: 14px 16px;
+    padding: 16px 20px;
   }
-  .stat-label { font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: .16em; color: #3a3a42; text-transform: uppercase; margin-bottom: 6px; }
-  .stat-value { font-family: 'Playfair Display', serif; font-size: 28px; font-weight: 700; color: #c8952a; }
-  .stat-value.neg { color: #e06b6b; }
+  .stat-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px; letter-spacing: .18em; color: #3a3a42;
+    text-transform: uppercase; margin-bottom: 8px;
+  }
+  .stat-value {
+    font-family: 'Playfair Display', serif;
+    font-size: 38px; font-weight: 700; color: #c8952a;
+  }
+  .stat-value.neg     { color: #e06b6b; }
   .stat-value.neutral { color: #f0ede6; }
 
+  /* ── LEGEND ── */
   .legend {
-    display: flex; gap: 20px; margin-bottom: 10px;
-    font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #4a4a50;
-    justify-content: flex-end;
-    opacity: 0; animation: fadeUp 0.5s ease forwards 0.6s;
+    display: flex; gap: 24px; margin-bottom: 12px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #4a4a50;
+    justify-content: flex-end; flex-shrink: 0;
+    opacity: 0; animation: fadeUp 0.5s ease forwards 0.8s;
   }
-  .legend-item { display: flex; align-items: center; gap: 6px; }
-  .legend-line { width: 20px; height: 2px; border-radius: 1px; }
-  .legend-dot  { width: 10px; height: 10px; border-radius: 50%; border: 2px solid #f0ede6; }
+  .legend-item { display: flex; align-items: center; gap: 8px; }
+  .legend-line { width: 24px; height: 2.5px; border-radius: 1px; }
+  .legend-dot  { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #f0ede6; }
 
+  /* ── CHART ── */
   .chart-wrap {
-    position: relative; width: 100%; height: 480px; margin-bottom: 8px;
-    opacity: 0; animation: fadeUp 0.7s ease forwards 0.7s;
+    flex: 1;
+    position: relative;
+    opacity: 0; animation: fadeUp 0.7s ease forwards 0.9s;
+    min-height: 0;
   }
+  canvas { display: block; }
 
+  /* ── FOOTER ── */
   .footer {
-    margin-top: 32px; padding-top: 20px; border-top: 1px solid #1e1e24;
-    font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #3a3a42;
-    letter-spacing: .04em;
+    flex-shrink: 0;
+    padding-top: 16px;
+    margin-top: 12px;
+    border-top: 1px solid #1e1e24;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px; color: #3a3a42; letter-spacing: .06em;
+    opacity: 0; animation: fadeUp 0.5s ease forwards 1.0s;
   }
 
+  @keyframes fadeDown {
+    from { opacity: 0; transform: translateY(-12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
   @keyframes fadeUp {
     from { opacity: 0; transform: translateY(10px); }
     to   { opacity: 1; transform: translateY(0); }
@@ -68,7 +118,7 @@
   <div class="masthead">
     <div class="masthead-eyebrow">Defensive Runs Saved · Shortstop · 2003–2025</div>
     <div class="masthead-title">Average DRS by Age</div>
-    <div class="masthead-sub">Top 30 Shortstops · Min. 500 Inn · Min. 3 Qualified Seasons per Age Bucket</div>
+    <div class="masthead-sub">Top 30 Shortstops &nbsp;·&nbsp; Min. 500 Inn &nbsp;·&nbsp; Min. 3 Qualified Seasons per Age Bucket</div>
   </div>
 
   <div class="stats-row">
@@ -101,11 +151,11 @@
     </div>
   </div>
 
-  <div class="chart-wrap">
+  <div class="chart-wrap" id="chartWrap">
     <canvas id="chart"></canvas>
   </div>
 
-  <div class="footer">Source: Sports Info Solutions via FieldingBible.com · DiamondMine baseball.db</div>
+  <div class="footer">Source: Sports Info Solutions via FieldingBible.com &nbsp;·&nbsp; DiamondMine baseball.db</div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
@@ -122,7 +172,7 @@ const DATA = [
 
 const labels   = DATA.map(d => d.age);
 const values   = DATA.map(d => d.avg);
-const sizes    = DATA.map(d => Math.max(5, (d.n / 30) * 13));
+const sizes    = DATA.map(d => Math.max(7, (d.n / 30) * 18));
 const totalPts = DATA.length;
 
 const ptColors = DATA.map(d =>
@@ -136,22 +186,27 @@ const MOOKIE       = { age: 32, drs: 17, season: 2025 };
 const MOOKIE_COLOR = '#4a8bbf';
 const mookieIdx    = labels.indexOf(MOOKIE.age);
 
-// ── KEY FIX: dedicated flag so last data point and Mookie are independent ──
 let revealCount    = 0;
 let mookieRevealed = false;
 
-// Preload headshot
 const mookieImg = new Image();
 mookieImg.crossOrigin = 'anonymous';
 mookieImg.src = 'https://cdn.jsdelivr.net/gh/diamond-mine-baseball/dataservice@main/headshots/Mookie_Betts_LAN_2025.jpg';
+
+// Size canvas to fill its wrapper exactly
+function resizeCanvas() {
+  const wrap = document.getElementById('chartWrap');
+  const canvas = document.getElementById('chart');
+  canvas.width  = wrap.clientWidth;
+  canvas.height = wrap.clientHeight;
+}
+resizeCanvas();
 
 const revealPlugin = {
   id: 'reveal',
   beforeDraw(chart) {
     const meta = chart.getDatasetMeta(0);
     meta.data.forEach((pt, i) => { pt.skip = i > revealCount; });
-
-    // Mookie stays hidden until mookieRevealed is explicitly set true
     const mookieMeta = chart.getDatasetMeta(1);
     mookieMeta.data.forEach(pt => { if (!mookieRevealed) pt.skip = true; });
   }
@@ -160,112 +215,108 @@ const revealPlugin = {
 const datalabelPlugin = {
   id: 'datalabels',
   afterDatasetsDraw(chart) {
-    const ctx   = chart.ctx;
+    const ctx2  = chart.ctx;
     const xS    = chart.scales.x;
     const yS    = chart.scales.y;
     const meta0 = chart.getDatasetMeta(0);
 
-    // Age labels on each visible point
-    ctx.save();
-    ctx.font = "400 9px 'IBM Plex Mono', monospace";
-    ctx.textAlign = 'center';
+    // Value labels on each visible point
+    ctx2.save();
+    ctx2.font = "400 11px 'IBM Plex Mono', monospace";
+    ctx2.textAlign = 'center';
     meta0.data.forEach((pt, i) => {
       if (pt.skip) return;
       const d     = DATA[i];
       const sign  = d.avg >= 0 ? '+' : '';
       const label = sign + d.avg.toFixed(1);
       const above = d.avg >= 0;
-      ctx.fillStyle = ptColors[i];
-      ctx.fillText(label, pt.x, above ? pt.y - sizes[i] - 4 : pt.y + sizes[i] + 12);
+      ctx2.fillStyle = ptColors[i];
+      ctx2.fillText(label, pt.x, above ? pt.y - sizes[i] - 5 : pt.y + sizes[i] + 14);
     });
-    ctx.restore();
+    ctx2.restore();
 
-    // Mookie annotation
     if (!mookieRevealed) return;
-    const R  = 32;
+
+    const R  = 42;
     const mx = xS.getPixelForValue(mookieIdx);
     const my = yS.getPixelForValue(MOOKIE.drs);
 
-    ctx.save();
+    ctx2.save();
 
-    // Headshot or initials
     if (mookieImg.complete && mookieImg.naturalWidth > 0) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(mx, my, R, 0, Math.PI * 2);
-      ctx.fillStyle = '#c5c5c7';
-      ctx.fill();
-      ctx.clip();
-      // Draw image centered and cover-fit within the circle
+      ctx2.save();
+      ctx2.beginPath();
+      ctx2.arc(mx, my, R, 0, Math.PI * 2);
+      ctx2.fillStyle = '#c5c5c7';
+      ctx2.fill();
+      ctx2.clip();
       const diameter = R * 2;
-      const iw = mookieImg.naturalWidth;
-      const ih = mookieImg.naturalHeight;
+      const iw    = mookieImg.naturalWidth;
+      const ih    = mookieImg.naturalHeight;
       const scale = Math.max(diameter / iw, diameter / ih) * 0.78;
-      const dw = iw * scale;
-      const dh = ih * scale;
-      // Shift vertically to favor the face (top 60% of image)
+      const dw    = iw * scale;
+      const dh    = ih * scale;
       const offsetX = mx - dw / 2;
       const offsetY = my - R - (dh - diameter) * 0.2;
-      ctx.drawImage(mookieImg, offsetX, offsetY, dw, dh);
-      ctx.restore();
+      ctx2.drawImage(mookieImg, offsetX, offsetY, dw, dh);
+      ctx2.restore();
     } else {
-      ctx.fillStyle = '#1a3050';
-      ctx.beginPath();
-      ctx.arc(mx, my, R, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = MOOKIE_COLOR;
-      ctx.font = "500 11px 'IBM Plex Mono', monospace";
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('MB', mx, my);
+      ctx2.fillStyle = '#1a3050';
+      ctx2.beginPath();
+      ctx2.arc(mx, my, R, 0, Math.PI * 2);
+      ctx2.fill();
+      ctx2.fillStyle = MOOKIE_COLOR;
+      ctx2.font = "500 14px 'IBM Plex Mono', monospace";
+      ctx2.textAlign = 'center';
+      ctx2.textBaseline = 'middle';
+      ctx2.fillText('MB', mx, my);
     }
 
     // Circle border
-    ctx.beginPath();
-    ctx.arc(mx, my, R, 0, Math.PI * 2);
-    ctx.strokeStyle = MOOKIE_COLOR;
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
+    ctx2.beginPath();
+    ctx2.arc(mx, my, R, 0, Math.PI * 2);
+    ctx2.strokeStyle = MOOKIE_COLOR;
+    ctx2.lineWidth = 3;
+    ctx2.stroke();
 
-    // Callout box to the left
+    // Callout box
     const nameLabel = 'MOOKIE BETTS';
-    const statLabel = '+17 DRS · 2025 · AGE 32';
-    ctx.font = "500 12px 'IBM Plex Mono', monospace";
-    const nw1  = ctx.measureText(nameLabel).width;
-    ctx.font = "400 10px 'IBM Plex Mono', monospace";
-    const nw2  = ctx.measureText(statLabel).width;
-    const boxW = Math.max(nw1, nw2) + 24;
-    const boxH = 46;
-    const boxX = mx - R - boxW - 12;
+    const statLabel = '+17 DRS  ·  2025  ·  AGE 32';
+    ctx2.font = "500 15px 'IBM Plex Mono', monospace";
+    const nw1  = ctx2.measureText(nameLabel).width;
+    ctx2.font = "400 12px 'IBM Plex Mono', monospace";
+    const nw2  = ctx2.measureText(statLabel).width;
+    const boxW = Math.max(nw1, nw2) + 32;
+    const boxH = 56;
+    const boxX = mx - R - boxW - 16;
     const boxY = my - boxH / 2;
 
-    ctx.fillStyle = 'rgba(17,17,21,0.96)';
-    ctx.strokeStyle = MOOKIE_COLOR;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.roundRect(boxX, boxY, boxW, boxH, 4);
-    ctx.fill();
-    ctx.stroke();
+    ctx2.fillStyle = 'rgba(17,17,21,0.97)';
+    ctx2.strokeStyle = MOOKIE_COLOR;
+    ctx2.lineWidth = 1.5;
+    ctx2.beginPath();
+    ctx2.roundRect(boxX, boxY, boxW, boxH, 5);
+    ctx2.fill();
+    ctx2.stroke();
 
-    // Connector
-    ctx.beginPath();
-    ctx.strokeStyle = MOOKIE_COLOR;
-    ctx.lineWidth = 1.5;
-    ctx.moveTo(boxX + boxW, my);
-    ctx.lineTo(mx - R - 2, my);
-    ctx.stroke();
+    ctx2.beginPath();
+    ctx2.strokeStyle = MOOKIE_COLOR;
+    ctx2.lineWidth = 1.5;
+    ctx2.moveTo(boxX + boxW, my);
+    ctx2.lineTo(mx - R - 2, my);
+    ctx2.stroke();
 
-    ctx.font = "500 12px 'IBM Plex Mono', monospace";
-    ctx.fillStyle = MOOKIE_COLOR;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    ctx.fillText(nameLabel, boxX + 12, boxY + 8);
+    ctx2.font = "500 15px 'IBM Plex Mono', monospace";
+    ctx2.fillStyle = MOOKIE_COLOR;
+    ctx2.textAlign = 'left';
+    ctx2.textBaseline = 'top';
+    ctx2.fillText(nameLabel, boxX + 16, boxY + 10);
 
-    ctx.font = "400 10px 'IBM Plex Mono', monospace";
-    ctx.fillStyle = 'rgba(74,139,191,0.65)';
-    ctx.fillText(statLabel, boxX + 12, boxY + 28);
+    ctx2.font = "400 12px 'IBM Plex Mono', monospace";
+    ctx2.fillStyle = 'rgba(74,139,191,0.65)';
+    ctx2.fillText(statLabel, boxX + 16, boxY + 32);
 
-    ctx.restore();
+    ctx2.restore();
   }
 };
 
@@ -280,12 +331,12 @@ const chart = new Chart(document.getElementById('chart'), {
         label: 'Top 30 avg',
         data: values,
         borderColor: '#c8952a',
-        borderWidth: 2.5,
+        borderWidth: 3,
         pointBackgroundColor: ptColors,
         pointBorderColor: ptColors,
         pointBorderWidth: 2,
         pointRadius: sizes,
-        pointHoverRadius: sizes.map(s => s + 3),
+        pointHoverRadius: sizes.map(s => s + 4),
         tension: 0.38,
         fill: {
           target: { value: 0 },
@@ -299,8 +350,8 @@ const chart = new Chart(document.getElementById('chart'), {
         borderColor: 'transparent',
         pointBackgroundColor: 'transparent',
         pointBorderColor: 'transparent',
-        pointRadius: 28,
-        pointHoverRadius: 30,
+        pointRadius: 38,
+        pointHoverRadius: 42,
         showLine: false,
         spanGaps: false,
       }
@@ -308,7 +359,7 @@ const chart = new Chart(document.getElementById('chart'), {
   },
   options: {
     animation: { duration: 0 },
-    responsive: true,
+    responsive: false,
     maintainAspectRatio: false,
     plugins: {
       legend: { display: false },
@@ -318,9 +369,9 @@ const chart = new Chart(document.getElementById('chart'), {
         bodyColor: '#6b6a66',
         borderColor: '#2a2a30',
         borderWidth: 1,
-        titleFont: { family: "'Playfair Display', serif", size: 15 },
-        bodyFont:  { family: "'IBM Plex Mono', monospace", size: 11 },
-        padding: 12,
+        titleFont: { family: "'Playfair Display', serif", size: 18 },
+        bodyFont:  { family: "'IBM Plex Mono', monospace", size: 13 },
+        padding: 16,
         callbacks: {
           title: items => `Age ${items[0].label}`,
           label: item => {
@@ -337,41 +388,49 @@ const chart = new Chart(document.getElementById('chart'), {
         grid:   { color: 'rgba(255,255,255,0.04)' },
         border: { color: '#2a2a30' },
         ticks: {
-          font: { family: "'IBM Plex Mono', monospace", size: 11 },
+          font: { family: "'IBM Plex Mono', monospace", size: 13 },
           color: '#4a4a50',
           callback: v => DATA[v]?.age,
         },
         title: {
           display: true, text: 'Player Age',
-          font: { family: "'IBM Plex Mono', monospace", size: 11 },
-          color: '#4a4a50', padding: { top: 10 }
+          font: { family: "'IBM Plex Mono', monospace", size: 13 },
+          color: '#4a4a50', padding: { top: 12 }
         }
       },
       y: {
         grid: {
           color: ctx => ctx.tick.value === 0 ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.04)',
-          lineWidth: ctx => ctx.tick.value === 0 ? 1.5 : 1,
+          lineWidth: ctx => ctx.tick.value === 0 ? 2 : 1,
         },
         border: { color: '#2a2a30', dash: [4,4] },
         min: -8, max: 22,
         ticks: {
-          font: { family: "'IBM Plex Mono', monospace", size: 11 },
+          font: { family: "'IBM Plex Mono', monospace", size: 13 },
           color: '#4a4a50',
           callback: v => (v > 0 ? '+' : '') + v,
         },
         title: {
           display: true, text: 'Avg DRS (Top 30)',
-          font: { family: "'IBM Plex Mono', monospace", size: 11 },
-          color: '#4a4a50', padding: { bottom: 10 }
+          font: { family: "'IBM Plex Mono', monospace", size: 13 },
+          color: '#4a4a50', padding: { bottom: 12 }
         }
       }
     }
   }
 });
 
+// Set canvas dimensions explicitly for 1920x1080
+const wrap = document.getElementById('chartWrap');
+chart.canvas.width  = wrap.clientWidth;
+chart.canvas.height = wrap.clientHeight;
+chart.resize();
+
 // ── ANIMATION ────────────────────────────────────────────────────────────────
-// Points reveal one by one, then a 3s pause before Mookie drops in.
-const REVEAL_DELAY = 80;
+// Extra initial delay gives OBS time to fully load fonts + assets
+const REVEAL_DELAY   = 90;
+const INITIAL_DELAY  = 2000;  // wait for OBS to settle before starting
+const MOOKIE_PAUSE   = 3000;  // dramatic pause before Mookie appears
 
 function revealNext() {
   if (revealCount < totalPts - 1) {
@@ -379,21 +438,20 @@ function revealNext() {
     chart.update('none');
     setTimeout(revealNext, REVEAL_DELAY);
   } else {
-    // Last point is now showing — wait 3 seconds then reveal Mookie
     chart.update('none');
     setTimeout(() => {
       mookieRevealed = true;
       const mookieMeta = chart.getDatasetMeta(1);
       mookieMeta.data.forEach(pt => { pt.skip = false; });
       chart.update('none');
-    }, 3000);
+    }, MOOKIE_PAUSE);
   }
 }
 
 setTimeout(() => {
   chart.update('none');
   setTimeout(revealNext, 400);
-}, 1200);
+}, INITIAL_DELAY);
 </script>
 </body>
 </html>

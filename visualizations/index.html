@@ -4,24 +4,204 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DiamondMine Visualizations</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
-    body { background: #07060f; color: #f5f0ff; font-family: 'DM Mono', monospace; padding: 40px; }
-    h1 { font-family: 'Bebas Neue', sans-serif; font-size: 48px; color: #c084fc; letter-spacing: 0.1em; margin-bottom: 8px; }
-    .subtitle { color: #6b5fa0; font-size: 12px; letter-spacing: 0.1em; margin-bottom: 40px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
-    .card { background: #0d0b1a; border: 1px solid #2e2860; border-radius: 6px; padding: 20px; text-decoration: none; color: inherit; transition: border-color 0.2s; display: block; }
-    .card:hover { border-color: #c084fc; }
-    .card-title { font-family: 'Bebas Neue', sans-serif; font-size: 20px; color: #c084fc; letter-spacing: 0.08em; margin-bottom: 6px; }
-    .card-desc { font-size: 11px; color: #c4b5e8; line-height: 1.6; }
-    .empty { color: #3d3460; font-size: 12px; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #07060f;
+      color: #f5f0ff;
+      font-family: 'DM Mono', monospace;
+      padding: 48px 40px 80px;
+      min-height: 100vh;
+    }
+    .back {
+      font-size: 10px; color: #6b5fa0; text-decoration: none;
+      letter-spacing: 0.12em; display: inline-block; margin-bottom: 32px;
+      transition: color 0.15s;
+    }
+    .back:hover { color: #c084fc; }
+    h1 {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 56px; color: #c084fc;
+      letter-spacing: 0.1em; line-height: 1;
+      margin-bottom: 4px;
+    }
+    .sub {
+      font-size: 10px; color: #3d3460;
+      letter-spacing: 0.18em; margin-bottom: 48px;
+    }
+    .section-label {
+      font-size: 9px; color: #6b5fa0;
+      letter-spacing: 0.2em; text-transform: uppercase;
+      margin-bottom: 12px; margin-top: 36px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #1c1838;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 12px;
+    }
+    a.card {
+      background: #0d0b1a;
+      border: 1px solid #1c1838;
+      border-radius: 6px;
+      padding: 18px 20px;
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 0.2s, background 0.2s;
+      display: block;
+    }
+    a.card:hover {
+      border-color: #c084fc;
+      background: #111026;
+    }
+    .card-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 17px; color: #c084fc;
+      letter-spacing: 0.08em; margin-bottom: 6px;
+    }
+    .card-desc {
+      font-size: 11px; color: #c4b5e8;
+      line-height: 1.65;
+    }
+    .card-tag {
+      display: inline-block;
+      font-size: 9px; letter-spacing: 0.08em;
+      padding: 2px 7px; border-radius: 3px;
+      background: #1c1838; color: #6b5fa0;
+      margin-top: 10px;
+    }
   </style>
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono&display=swap" rel="stylesheet">
 </head>
 <body>
-  <h1>DIAMONDMINE</h1>
-  <div class="subtitle">DATA VISUALIZATIONS</div>
-  <div class="grid" id="viz-grid">
-    <p class="empty">No visualizations yet — add HTML files to this folder.</p>
+  <a class="back" href="/minev2/">← BACK TO DIAMONDMINE</a>
+  <h1>VISUALIZATIONS</h1>
+  <div class="sub">DIAMONDMINE · DATA STORIES · BASEBALL ANALYTICS</div>
+
+  <div class="section-label">Shortstop Era</div>
+  <div class="grid">
+    <a class="card" href="ss_opsplus_top30.html">
+      <div class="card-title">SS OPS+ Leaders All-Time</div>
+      <div class="card-desc">Top 30 shortstop seasons by OPS+. Visualizes how Ripken and Yount redefined offensive expectations at the position in 1982.</div>
+      <span class="card-tag">OPS+ · Career</span>
+    </a>
+    <a class="card" href="ss_drs_leaders.html">
+      <div class="card-title">SS DRS Leaders</div>
+      <div class="card-desc">Defensive Runs Saved leaderboard among shortstops. Identifies the best gloves at the most demanding infield position.</div>
+      <span class="card-tag">DRS · Defense</span>
+    </a>
+    <a class="card" href="ss_drs_leaders_16x9.html">
+      <div class="card-title">SS DRS Leaders (16:9)</div>
+      <div class="card-desc">Widescreen version of the shortstop DRS leaders chart, optimized for video/presentation format.</div>
+      <span class="card-tag">DRS · Defense · 16:9</span>
+    </a>
+    <a class="card" href="ss_drs_age32_16x9.html">
+      <div class="card-title">SS DRS Through Age 32</div>
+      <div class="card-desc">Career DRS accumulation among shortstops through their age-32 season. Tracks defensive prime and decline curves.</div>
+      <span class="card-tag">DRS · Age Curve · 16:9</span>
+    </a>
+    <a class="card" href="ss_drs_age32_16x9_1.html">
+      <div class="card-title">SS DRS Through Age 32 (v1)</div>
+      <div class="card-desc">Alternate version of the shortstop DRS age-32 analysis.</div>
+      <span class="card-tag">DRS · Age Curve</span>
+    </a>
+    <a class="card" href="ss_drs_age32_16x9_2.html">
+      <div class="card-title">SS DRS Through Age 32 (v2)</div>
+      <div class="card-desc">Second alternate version of the shortstop DRS age-32 analysis with revised styling.</div>
+      <span class="card-tag">DRS · Age Curve</span>
+    </a>
+    <a class="card" href="avg_war_by_age_ss.html">
+      <div class="card-title">Average WAR by Age — Shortstops</div>
+      <div class="card-desc">WAR aging curves specific to the shortstop position. Shows when SS players typically peak and how fast they decline.</div>
+      <span class="card-tag">WAR · Age Curve · Position</span>
+    </a>
+  </div>
+
+  <div class="section-label">Outfield & Positional Defense</div>
+  <div class="grid">
+    <a class="card" href="avg_war_by_age_cf.html">
+      <div class="card-title">Average WAR by Age — Center Fielders</div>
+      <div class="card-desc">WAR aging curves for center fielders. Compares career arc shapes across the position's most demanding defensive role.</div>
+      <span class="card-tag">WAR · Age Curve · CF</span>
+    </a>
+    <a class="card" href="DRSByAgeMookieReveal.html">
+      <div class="card-title">DRS by Age — Mookie Betts Reveal</div>
+      <div class="card-desc">Animated reveal of Mookie Betts' defensive career arc against the field of elite outfielders by DRS.</div>
+      <span class="card-tag">DRS · Mookie · Animation</span>
+    </a>
+    <a class="card" href="jeter_vs_mookie_drs.html">
+      <div class="card-title">Jeter vs. Mookie — DRS</div>
+      <div class="card-desc">Head-to-head defensive comparison between Derek Jeter and Mookie Betts using Defensive Runs Saved.</div>
+      <span class="card-tag">DRS · Comparison</span>
+    </a>
+    <a class="card" href="drs_by_age.html">
+      <div class="card-title">DRS by Age</div>
+      <div class="card-desc">Defensive Runs Saved plotted against player age across all positions. Maps the typical defensive career arc.</div>
+      <span class="card-tag">DRS · Age Curve · All Positions</span>
+    </a>
+    <a class="card" href="drs_by_age_1.html">
+      <div class="card-title">DRS by Age (v1)</div>
+      <div class="card-desc">Alternate version of the DRS aging curve visualization.</div>
+      <span class="card-tag">DRS · Age Curve</span>
+    </a>
+    <a class="card" href="drs_by_age_2.html">
+      <div class="card-title">DRS by Age (v2)</div>
+      <div class="card-desc">Second alternate version of the DRS aging curve with revised design.</div>
+      <span class="card-tag">DRS · Age Curve</span>
+    </a>
+    <a class="card" href="oaa_vs_drs_scatter.html">
+      <div class="card-title">OAA vs. DRS Scatter</div>
+      <div class="card-desc">Scatter plot comparing Outs Above Average (Statcast) against Defensive Runs Saved (SIS). Where the two systems agree and diverge.</div>
+      <span class="card-tag">OAA · DRS · Statcast</span>
+    </a>
+  </div>
+
+  <div class="section-label">WAR & Aging Curves</div>
+  <div class="grid">
+    <a class="card" href="avg_war_by_age_1.html">
+      <div class="card-title">Average WAR by Age</div>
+      <div class="card-desc">Universal WAR aging curves across all position players. Shows the typical peak, plateau, and decline phases of a baseball career.</div>
+      <span class="card-tag">WAR · Age Curve</span>
+    </a>
+    <a class="card" href="AWbyAgeSP.html">
+      <div class="card-title">Average WAR by Age — Starting Pitchers</div>
+      <div class="card-desc">Career WAR accumulation curves for starting pitchers. Compares aging patterns against position players.</div>
+      <span class="card-tag">WAR · Age Curve · SP</span>
+    </a>
+    <a class="card" href="top50_pitching_age24.html">
+      <div class="card-title">Top 50 Pitching Seasons at Age 24</div>
+      <div class="card-desc">The best pitching performances in MLB history among 24-year-olds. Who belongs in the conversation for best young arm ever?</div>
+      <span class="card-tag">Pitching · Historical · Age 24</span>
+    </a>
+  </div>
+
+  <div class="section-label">League Trends</div>
+  <div class="grid">
+    <a class="card" href="avg_age_by_year.html">
+      <div class="card-title">Average Player Age by Year</div>
+      <div class="card-desc">How the average age of MLB position players has shifted over time. Tracks roster construction trends and the league's youth movement.</div>
+      <span class="card-tag">Age · League Trend</span>
+    </a>
+    <a class="card" href="avg_pitcher_age_by_year.html">
+      <div class="card-title">Average Pitcher Age by Year</div>
+      <div class="card-desc">Same aging trend analysis focused on pitchers. Are teams getting younger on the mound faster than in the field?</div>
+      <span class="card-tag">Age · Pitching · League Trend</span>
+    </a>
+    <a class="card" href="league_avg_ops_by_year.html">
+      <div class="card-title">League Average OPS by Year</div>
+      <div class="card-desc">Tracks MLB-wide offensive output (OPS) across seasons. Visualizes the steroid era peak, the dead ball correction, and the current run environment.</div>
+      <span class="card-tag">OPS · Offense · Historical</span>
+    </a>
+  </div>
+
+  <div class="section-label">Player Stories</div>
+  <div class="grid">
+    <a class="card" href="ohtani_prohtagonist.html">
+      <div class="card-title">Ohtani: The Prohtagonist</div>
+      <div class="card-desc">Shohei Ohtani's historic two-way career visualized. Where does he rank among the greatest pitching and hitting seasons simultaneously?</div>
+      <span class="card-tag">Ohtani · Two-Way · Historical</span>
+    </a>
   </div>
 </body>
 </html>
