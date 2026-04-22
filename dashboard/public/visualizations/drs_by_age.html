@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Average DRS by Age — Top 30 Shortstops</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #0a0c08;
+    color: #c8dfa0;
+    font-family: 'DM Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 32px;
+  }
+
+  .outer {
+    width: 100%;
+    max-width: 960px;
+  }
+
+  .header {
+    margin-bottom: 32px;
+    opacity: 0;
+    transform: translateY(-16px);
+    animation: fadeDown 0.7s ease forwards 0.2s;
+  }
+
+  .eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    color: #4a6a2a;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+  }
+
+  .title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(32px, 5vw, 58px);
+    letter-spacing: 0.04em;
+    line-height: 1;
+    color: #C8F135;
+    text-shadow: 0 0 40px rgba(200,241,53,0.15);
+  }
+
+  .subtitle {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #4a6a2a;
+    letter-spacing: 0.12em;
+  }
+
+  .stats-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+    opacity: 0;
+    animation: fadeUp 0.6s ease forwards 0.6s;
+  }
+
+  .stat-card {
+    flex: 1;
+    min-width: 110px;
+    background: #111408;
+    border: 1px solid #1e2410;
+    border-radius: 3px;
+    padding: 14px 16px;
+  }
+
+  .stat-label {
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    color: #4a6a2a;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+
+  .stat-value {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 28px;
+    letter-spacing: 0.04em;
+    color: #C8F135;
+  }
+
+  .chart-wrap {
+    background: #0d0f0a;
+    border: 1px solid #1e2410;
+    border-radius: 3px;
+    padding: 32px 28px 24px;
+    position: relative;
+    opacity: 0;
+    animation: fadeUp 0.7s ease forwards 0.9s;
+  }
+
+  .chart-inner {
+    position: relative;
+    width: 100%;
+    height: 420px;
+  }
+
+  .zero-line-label {
+    position: absolute;
+    right: 0;
+    font-size: 9px;
+    color: #2a3a18;
+    letter-spacing: 0.1em;
+    pointer-events: none;
+  }
+
+  .footer {
+    margin-top: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    opacity: 0;
+    animation: fadeUp 0.5s ease forwards 1.2s;
+  }
+
+  .footer-note {
+    font-size: 10px;
+    color: #2a3a18;
+    letter-spacing: 0.1em;
+  }
+
+  .logo {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 16px;
+    letter-spacing: 0.1em;
+    color: #2a3a18;
+  }
+
+  .logo span { color: #4a6a2a; }
+
+  @keyframes fadeDown {
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+</style>
+</head>
+<body>
+<div class="outer">
+
+  <div class="header">
+    <div class="eyebrow">Defensive Runs Saved · Shortstop · 2003–2025</div>
+    <div class="title">Average DRS by Age</div>
+    <div class="title" style="color:#fff; font-size: clamp(20px,3vw,34px); margin-top:4px;">Top 30 Shortstops</div>
+    <div class="subtitle">MIN 500 INN · MIN 3 QUALIFIED SEASONS PER AGE BUCKET</div>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-label">Peak Age</div>
+      <div class="stat-value">26</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Peak Avg DRS</div>
+      <div class="stat-value" style="color:#C8F135">+12.6</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Goes Negative</div>
+      <div class="stat-value" style="color:#e74c3c">Age 34</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Age Range</div>
+      <div class="stat-value">20–40</div>
+    </div>
+  </div>
+
+  <div class="chart-wrap">
+    <div class="chart-inner">
+      <canvas id="chart"></canvas>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div class="footer-note">SOURCE: SPORTS INFO SOLUTIONS VIA FIELDINGBIBLE.COM · DIAMONDMINE</div>
+    <div class="logo">DIAMOND<span>MINE</span></div>
+  </div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const DATA = [
+  {age:20,avg:6.33,n:3},{age:21,avg:-1.14,n:7},{age:22,avg:4.48,n:25},
+  {age:23,avg:4.33,n:30},{age:24,avg:7.03,n:30},{age:25,avg:9.03,n:30},
+  {age:26,avg:12.6,n:30},{age:27,avg:12.07,n:30},{age:28,avg:10.0,n:30},
+  {age:29,avg:9.67,n:30},{age:30,avg:5.93,n:30},{age:31,avg:3.6,n:30},
+  {age:32,avg:0.76,n:29},{age:33,avg:1.04,n:23},{age:34,avg:-1.88,n:16},
+  {age:35,avg:0.89,n:9},{age:36,avg:-0.8,n:5},{age:37,avg:-3.4,n:5},
+  {age:40,avg:-4.67,n:3}
+];
+
+const labels = DATA.map(d => d.age);
+const values = DATA.map(d => d.avg);
+const sizes  = DATA.map(d => Math.max(5, (d.n / 30) * 13));
+
+const ptColors = DATA.map(d =>
+  d.avg >= 10  ? '#C8F135' :
+  d.avg >= 5   ? '#7dba2a' :
+  d.avg >= 0   ? '#4a6a2a' :
+                 '#e74c3c'
+);
+
+const peakIdx = values.indexOf(Math.max(...values));
+
+const datalabelPlugin = {
+  id: 'datalabels',
+  afterDatasetsDraw(chart) {
+    const { ctx } = chart;
+    const ds = chart.getDatasetMeta(0);
+    ctx.save();
+    ds.data.forEach((pt, i) => {
+      const val = values[i];
+      const isPeak = i === peakIdx;
+      const isNeg  = val < 0;
+      const label  = (val > 0 ? '+' : '') + val.toFixed(1);
+
+      ctx.font = isPeak
+        ? "bold 13px 'DM Mono', monospace"
+        : "11px 'DM Mono', monospace";
+      ctx.fillStyle = isPeak ? '#C8F135' : isNeg ? '#e74c3c' : '#8a9a6a';
+      ctx.textAlign = 'center';
+
+      const yOffset = val >= 0 ? -16 : 16;
+      ctx.textBaseline = val >= 0 ? 'bottom' : 'top';
+
+      if (isPeak) {
+        const bw = ctx.measureText(label).width + 16;
+        const bh = 22;
+        const bx = pt.x - bw / 2;
+        const by = pt.y + yOffset - (val >= 0 ? bh : 0);
+        ctx.fillStyle = 'rgba(200,241,53,0.12)';
+        ctx.strokeStyle = '#C8F135';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(bx, by, bw, bh, 3);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#C8F135';
+        ctx.font = "bold 13px 'DM Mono', monospace";
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, pt.x, by + bh / 2);
+      } else {
+        ctx.fillStyle = isNeg ? '#e74c3c' : '#8a9a6a';
+        ctx.fillText(label, pt.x, pt.y + yOffset);
+      }
+    });
+
+    // age labels on x-axis inside chart
+    ds.data.forEach((pt, i) => {
+      ctx.font = "10px 'DM Mono', monospace";
+      ctx.fillStyle = '#3a4a28';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+    });
+
+    ctx.restore();
+  }
+};
+
+Chart.register(datalabelPlugin);
+
+// Animated draw — reveal points one by one
+let revealCount = 0;
+const totalPts  = DATA.length;
+const revealPlugin = {
+  id: 'reveal',
+  beforeDraw(chart) {
+    const meta = chart.getDatasetMeta(0);
+    meta.data.forEach((pt, i) => {
+      pt.skip = i > revealCount;
+    });
+  }
+};
+
+const chart = new Chart(document.getElementById('chart'), {
+  type: 'line',
+  plugins: [revealPlugin],
+  data: {
+    labels,
+    datasets: [{
+      data: values,
+      borderColor: '#2a5a18',
+      borderWidth: 2.5,
+      pointBackgroundColor: ptColors,
+      pointBorderColor: ptColors,
+      pointBorderWidth: 2,
+      pointRadius: sizes,
+      pointHoverRadius: sizes.map(s => s + 3),
+      tension: 0.38,
+      fill: {
+        target: { value: 0 },
+        above: 'rgba(200,241,53,0.07)',
+        below: 'rgba(231,76,60,0.08)',
+      },
+    }]
+  },
+  options: {
+    animation: { duration: 0 },
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#111408',
+        titleColor: '#C8F135',
+        bodyColor: '#8a9a6a',
+        borderColor: '#1e2410',
+        borderWidth: 1,
+        titleFont: { family: "'Bebas Neue', sans-serif", size: 16 },
+        bodyFont:  { family: "'DM Mono', monospace", size: 11 },
+        padding: 12,
+        callbacks: {
+          title: items => `Age ${items[0].label}`,
+          label: item => {
+            const d = DATA[item.dataIndex];
+            const sign = d.avg > 0 ? '+' : '';
+            return [`Avg DRS: ${sign}${d.avg.toFixed(2)}`, `Sample: ${d.n} players`];
+          }
+        }
+      }
+    },
+    scales: {
+      x: {
+        grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false },
+        border: { color: '#1e2410' },
+        ticks: {
+          font: { family: "'DM Mono', monospace", size: 11 },
+          color: '#4a6a2a',
+          callback: v => DATA[v]?.age
+        },
+        title: {
+          display: true,
+          text: 'AGE',
+          font: { family: "'Bebas Neue', sans-serif", size: 14 },
+          color: '#2a3a18',
+          padding: { top: 10 }
+        }
+      },
+      y: {
+        grid: {
+          color: ctx => ctx.tick.value === 0 ? 'rgba(200,241,53,0.15)' : 'rgba(255,255,255,0.04)',
+          lineWidth: ctx => ctx.tick.value === 0 ? 1.5 : 1,
+          drawBorder: false
+        },
+        border: { color: '#1e2410' },
+        min: -8,
+        max: 17,
+        ticks: {
+          font: { family: "'DM Mono', monospace", size: 11 },
+          color: '#4a6a2a',
+          callback: v => (v > 0 ? '+' : '') + v
+        },
+        title: {
+          display: true,
+          text: 'AVG DRS (TOP 30)',
+          font: { family: "'Bebas Neue', sans-serif", size: 14 },
+          color: '#2a3a18',
+          padding: { bottom: 10 }
+        }
+      }
+    }
+  }
+});
+
+// Animate points appearing one by one
+const revealDelay = 80;
+function revealNext() {
+  if (revealCount < totalPts - 1) {
+    revealCount++;
+    chart.update('none');
+    setTimeout(revealNext, revealDelay);
+  } else {
+    chart.update('none');
+  }
+}
+
+setTimeout(() => {
+  chart.update('none');
+  setTimeout(revealNext, 400);
+}, 1200);
+</script>
+</body>
+</html>

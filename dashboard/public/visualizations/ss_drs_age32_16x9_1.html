@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>Top 10 SS DRS Seasons — Age 32</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width:1280px; height:720px; overflow:hidden; background:#070906; font-family:'DM Mono',monospace; }
+
+.frame {
+  width:1280px; height:720px;
+  display:flex; flex-direction:column;
+  padding:26px 44px 18px;
+}
+
+/* ── Header ── */
+.header {
+  display:flex; justify-content:space-between; align-items:flex-end;
+  margin-bottom:16px; flex-shrink:0;
+  opacity:0; animation:fadeDown 0.6s ease forwards 0.1s;
+}
+.eyebrow { font-size:10px; letter-spacing:0.22em; color:#2e4a18; margin-bottom:5px; }
+.title { font-family:'Bebas Neue',sans-serif; font-size:44px; letter-spacing:0.04em; line-height:1; color:#C8F135; }
+.subtitle { font-family:'Bebas Neue',sans-serif; font-size:20px; letter-spacing:0.08em; color:#3a5a1a; margin-top:3px; }
+.header-right { text-align:right; }
+.logo { font-family:'Bebas Neue',sans-serif; font-size:18px; letter-spacing:0.12em; color:#1e2a10; }
+.logo span { color:#2e4a18; }
+
+/* ── Col headers ── */
+.col-heads {
+  display:grid;
+  grid-template-columns: 46px 58px 1fr 60px 260px 180px;
+  gap:0 14px; padding:0 8px 8px;
+  border-bottom:1px solid #161a0e; margin-bottom:5px;
+  flex-shrink:0; opacity:0; animation:fadeUp 0.5s ease forwards 0.5s;
+}
+.col-head { font-size:8px; letter-spacing:0.2em; color:#253818; }
+
+/* ── Rows ── */
+.rows { flex:1; display:flex; flex-direction:column; gap:6px; }
+
+.row {
+  display:grid;
+  grid-template-columns: 46px 58px 1fr 60px 260px 180px;
+  gap:0 14px; align-items:center;
+  padding:10px 8px;
+  border-radius:3px;
+  background:#0c0f09;
+  border-left:3px solid #1a2010;
+  border-top:1px solid #111508; border-right:1px solid #111508; border-bottom:1px solid #111508;
+  opacity:0; transform:translateX(-24px);
+  flex:1; position:relative; overflow:hidden;
+  transition:border-color 0.2s;
+}
+
+/* Mookie special glow */
+.row.mookie {
+  background:#0e1a0a;
+  border-left-color:#C8F135;
+  border-top-color:#1e3010; border-right-color:#1e3010; border-bottom-color:#1e3010;
+}
+.row.mookie::after {
+  content:'';
+  position:absolute; inset:0;
+  background: linear-gradient(90deg, rgba(200,241,53,0.04) 0%, transparent 60%);
+  pointer-events:none;
+}
+
+.row.r1 { border-left-color:#7dba2a; }
+.row.r2 { border-left-color:#5a9020; }
+
+/* ── Rank ── */
+.rank-num {
+  font-family:'Bebas Neue',sans-serif; font-size:28px;
+  letter-spacing:0.02em; text-align:center; line-height:1; color:#1e3010;
+}
+.r1 .rank-num { color:#7dba2a; }
+.r2 .rank-num { color:#5a9020; }
+.mookie .rank-num { color:#C8F135; }
+
+/* ── Headshot ── */
+.hs-wrap {
+  width:50px; height:50px; border-radius:50%;
+  overflow:hidden; border:2px solid #1a2410;
+  background:#111408;
+  display:flex; align-items:center; justify-content:center;
+  font-family:'Bebas Neue',sans-serif; font-size:13px; color:#2a4020;
+  flex-shrink:0;
+}
+.r1 .hs-wrap { border-color:#7dba2a40; }
+.mookie .hs-wrap { border-color:#C8F13560; box-shadow:0 0 10px rgba(200,241,53,0.12); }
+.hs-wrap img { width:100%; height:100%; object-fit:cover; object-position:center top; }
+
+/* ── Player info ── */
+.player-name {
+  font-family:'Bebas Neue',sans-serif; font-size:21px;
+  letter-spacing:0.04em; line-height:1; color:#8aaa60;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.r1 .player-name { color:#b8d880; }
+.mookie .player-name { color:#C8F135; }
+
+.player-sub { font-size:9px; color:#2a4018; letter-spacing:0.12em; margin-top:3px; }
+.mookie .player-sub { color:#4a7a28; }
+
+.active-badge {
+  display:inline-block;
+  background:#C8F13520; border:1px solid #C8F13540;
+  color:#C8F135; font-size:7px; letter-spacing:0.14em;
+  padding:1px 5px; border-radius:2px; margin-left:6px;
+  vertical-align:middle; line-height:1.6;
+}
+
+/* ── DRS val ── */
+.drs-val {
+  font-family:'Bebas Neue',sans-serif; font-size:28px;
+  letter-spacing:0.02em; line-height:1; text-align:right; color:#3a6028;
+}
+.r1 .drs-val { color:#7dba2a; }
+.r2 .drs-val { color:#5a9020; }
+.mookie .drs-val { color:#C8F135; }
+
+/* ── Bar ── */
+.bar-track { width:100%; height:7px; background:#111508; border-radius:4px; overflow:hidden; }
+.bar-fill {
+  height:100%; border-radius:4px; width:0%;
+  transition:width 0.85s cubic-bezier(0.16,1,0.3,1);
+}
+.r1 .bar-fill { background:#7dba2a; }
+.r2 .bar-fill { background:#5a9020; }
+.mookie .bar-fill { background:#C8F135; }
+.bar-fill { background:#2a5010; }
+
+/* ── Context panel ── */
+.ctx-panel {
+  display:flex; flex-direction:column; justify-content:center;
+  align-items:flex-end; gap:2px; height:100%;
+}
+.ctx-label { font-size:7px; letter-spacing:0.14em; color:#253818; line-height:1; }
+.ctx-val {
+  font-family:'Bebas Neue',sans-serif; font-size:13px;
+  letter-spacing:0.06em; color:#3a5a20; line-height:1;
+}
+.mookie .ctx-label { color:#3a6020; }
+.mookie .ctx-val { color:#7aaa38; }
+
+/* ── Footer ── */
+.footer {
+  flex-shrink:0; display:flex; justify-content:space-between; align-items:center;
+  margin-top:7px; padding-top:7px; border-top:1px solid #111508;
+  opacity:0; animation:fadeUp 0.4s ease forwards 1.9s;
+}
+.footer-note { font-size:8px; color:#1a2610; letter-spacing:0.12em; }
+
+@keyframes fadeDown { from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:translateY(0)} }
+@keyframes fadeUp   { from{opacity:0;transform:translateY(6px)}  to{opacity:1;transform:translateY(0)} }
+@keyframes slideIn  { from{opacity:0;transform:translateX(-24px)} to{opacity:1;transform:translateX(0)} }
+</style>
+</head>
+<body>
+<div class="frame">
+
+  <div class="header">
+    <div class="header-left">
+      <div class="eyebrow">SPORTS INFO SOLUTIONS · DEFENSIVE RUNS SAVED · 2003–2025 · MIN 500 INN</div>
+      <div class="title">Best DRS Seasons at Age 32</div>
+      <div class="subtitle">Shortstop — All-Time</div>
+    </div>
+    <div class="header-right">
+      <div class="logo">DIAMOND<span>MINE</span></div>
+    </div>
+  </div>
+
+  <div class="col-heads">
+    <div class="col-head" style="text-align:center">#</div>
+    <div class="col-head"></div>
+    <div class="col-head">PLAYER · SEASON</div>
+    <div class="col-head" style="text-align:right">DRS</div>
+    <div class="col-head" style="padding-left:4px">RELATIVE TO LEADER (+21)</div>
+    <div class="col-head" style="text-align:right">CONTEXT</div>
+  </div>
+
+  <div class="rows" id="rows"></div>
+
+  <div class="footer">
+    <div class="footer-note">DATA: SPORTS INFO SOLUTIONS VIA FIELDINGBIBLE.COM · VISUALIZATION: DIAMONDMINE · ALL PLAYERS LISTED AT AGE 32</div>
+    <div class="logo" style="font-size:12px;">DIAMOND<span>MINE</span></div>
+  </div>
+
+</div>
+
+<script>
+const BASE = 'http://localhost:5000';
+const MAX_DRS = 21;
+const HS_BASE = '/Users/euno/Desktop/DiamondMine/data/baseball_output_2015_present/headshots/';
+
+const DATA = [
+  { rank:1,  rc:'r1',     mookie:false, player:'John McDonald',   season:2007, drs:21, hs:'John_McDonald_LAA_2014.jpg',    initials:'JM', ctx1:'CAREER HIGH',    ctx2:'ONLY 32-YEAR-OLD OVER 20' },
+  { rank:2,  rc:'r2',     mookie:false, player:'Neifi Perez',     season:2005, drs:19, hs:'Neifi_Perez_DET_2007.jpg',     initials:'NP', ctx1:'CAREER YEAR',    ctx2:'BEST OF HIS CAREER' },
+  { rank:3,  rc:'',       mookie:true,  player:'Mookie Betts',    season:2025, drs:17, hs:'Mookie_Betts_LAN_2025.jpg',   initials:'MB', ctx1:'ACTIVE · 2025',  ctx2:'CONVERTING FROM OF' },
+  { rank:4,  rc:'',       mookie:false, player:'Clint Barmes',    season:2011, drs:16, hs:'Clint_Barmes_COL_2009.jpg',   initials:'CB', ctx1:'PRIME DEFENDER', ctx2:'3RD BEST OF CAREER' },
+  { rank:5,  rc:'',       mookie:false, player:'Jhonny Peralta',  season:2014, drs:16, hs:'Jhonny_Peralta_SLN_2017.jpg', initials:'JP', ctx1:'LATE PRIME',     ctx2:'CAREER HIGH DRS' },
+  { rank:6,  rc:'',       mookie:false, player:'Adam Everett',    season:2009, drs:9,  hs:'Adam_Everett_CLE_2011.jpg',   initials:'AE', ctx1:'VETERAN',        ctx2:'2ND ALL-TIME SS LIST' },
+  { rank:7,  rc:'',       mookie:false, player:'Jack Wilson',     season:2010, drs:9,  hs:'Jack_Wilson_ATL_2012.jpg',    initials:'JW', ctx1:'VETERAN',        ctx2:'3 SEASONS IN TOP 10' },
+  { rank:8,  rc:'',       mookie:false, player:'Miguel Rojas',    season:2021, drs:5,  hs:'Miguel_Rojas_LAN_2025.jpg',   initials:'MR', ctx1:'UTILITY VALUE',  ctx2:'' },
+  ,
+  ,
+];
+
+function buildRow(d) {
+  const pct = Math.round((d.drs / MAX_DRS) * 100);
+  const el = document.createElement('div');
+  el.className = `row ${d.rc}${d.mookie ? ' mookie' : ''}`;
+  el.id = `row-${d.rank}`;
+
+  const activeBadge = d.mookie ? `<span class="active-badge">ACTIVE</span>` : '';
+
+  el.innerHTML = `
+    <div class="rank-num">${d.rank}</div>
+    <div class="hs-wrap" id="hs-${d.rank}">${d.initials}</div>
+    <div>
+      <div class="player-name">${d.player}${activeBadge}</div>
+      <div class="player-sub">${d.season} · AGE 32</div>
+    </div>
+    <div class="drs-val">+${d.drs}</div>
+    <div>
+      <div class="bar-track">
+        <div class="bar-fill" id="bar-${d.rank}" data-pct="${pct}"></div>
+      </div>
+    </div>
+    <div class="ctx-panel">
+      <div class="ctx-label">${d.ctx1}</div>
+      ${d.ctx2 ? `<div class="ctx-val">${d.ctx2}</div>` : ''}
+    </div>
+  `;
+  return el;
+}
+
+async function loadHS(d) {
+  try {
+    const url = `${BASE}/headshot?path=${encodeURIComponent(HS_BASE + d.hs)}`;
+    const r = await fetch(url);
+    if (!r.ok) return;
+    const blob = await r.blob();
+    const el = document.getElementById(`hs-${d.rank}`);
+    if (el) el.innerHTML = `<img src="${URL.createObjectURL(blob)}" alt="${d.player}"/>`;
+  } catch(e) {}
+}
+
+const container = document.getElementById('rows');
+DATA.forEach(d => container.appendChild(buildRow(d)));
+
+DATA.forEach((d, i) => {
+  const row = document.getElementById(`row-${d.rank}`);
+  setTimeout(() => {
+    row.style.animation = `slideIn 0.45s cubic-bezier(0.16,1,0.3,1) forwards`;
+    setTimeout(() => {
+      const bar = document.getElementById(`bar-${d.rank}`);
+      if (bar) bar.style.width = bar.dataset.pct + '%';
+    }, 280);
+  }, 620 + i * 110);
+});
+
+DATA.forEach(d => loadHS(d));
+</script>
+</body>
+</html>
