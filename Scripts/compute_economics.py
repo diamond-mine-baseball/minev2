@@ -239,8 +239,9 @@ def derive_market_rates(conn, name_map, fuzzy_keys, min_war_per_season=0.5, verb
     """
     current_year = datetime.now().year
     contracts = conn.execute("""
-        SELECT name, signing_class, position, new_team,
-               aav, guarantee, years, term_start, term_end, age
+        SELECT name, signing_class, position, new_team, aav, 
+            COALESCE(cbt_aav, aav) as effective_aav, guarantee, years, term_start, term_end, age,
+            COALESCE(has_deferral, 0) as has_deferral, cbt_aav
         FROM contracts
         WHERE is_mlb = 1
           AND aav IS NOT NULL AND aav > 0
@@ -254,7 +255,7 @@ def derive_market_rates(conn, name_map, fuzzy_keys, min_war_per_season=0.5, verb
     class_buckets = {}  # class_year → {total_salary, total_war, n, n_matched}
 
     for row in contracts:
-        name, cls, pos, team, aav, guar, yrs, t_start, t_end, age = row
+        name, cls, pos, team, face_aav, aav, guar, yrs, t_start, t_end, age, has_deferral, cbt_aav_val = row
         role = get_role(pos)
         canonical, match_type = resolve_name(name, name_map, fuzzy_keys)
 
@@ -315,7 +316,10 @@ def compute_valuations(conn, name_map, fuzzy_keys, market_rates, verbose=False):
 
     contracts = conn.execute("""
         SELECT name, signing_class, position, new_team,
-               aav, guarantee, years, term_start, term_end, age
+               aav, COALESCE(cbt_aav, aav) as effective_aav,
+               guarantee, years, term_start, term_end, age,
+               COALESCE(has_deferral, 0) as has_deferral,
+               cbt_aav
         FROM contracts
         WHERE is_mlb = 1
           AND aav IS NOT NULL AND aav > 0
@@ -324,7 +328,7 @@ def compute_valuations(conn, name_map, fuzzy_keys, market_rates, verbose=False):
 
     valuations = []
     for row in contracts:
-        name, cls, pos, team, aav, guar, yrs, t_start, t_end, age = row
+        name, cls, pos, team, face_aav, aav, guar, yrs, t_start, t_end, age, has_deferral, cbt_aav_val = row
         role = get_role(pos)
         canonical, match_type = resolve_name(name, name_map, fuzzy_keys)
         pos_group = position_group(pos, conn, canonical, t_start)
@@ -378,7 +382,7 @@ def compute_valuations(conn, name_map, fuzzy_keys, market_rates, verbose=False):
         realized_market_value = None
         realized_surplus = None
         if total_realized_war is not None and market_rate and seasons_played > 0:
-            salary_paid = aav * seasons_played
+            salary_paid = face_aav * seasons_played  # actual cash paid
             realized_market_value = round(total_realized_war * market_rate, 0)
             realized_surplus = round(realized_market_value - salary_paid, 0)
 
@@ -398,8 +402,11 @@ def compute_valuations(conn, name_map, fuzzy_keys, market_rates, verbose=False):
             'role':                   role,
             'new_team':               team,
             'age_at_signing':         age,
+            'has_deferral':           has_deferral,
+            'cbt_aav':               cbt_aav_val,
+            'effective_aav':          aav,  # cbt_aav if deferred, else face aav
             'years':                  yrs,
-            'aav':                    aav,
+            'aav':                    face_aav,
             'guarantee':              guar,
             'term_start':             t_start,
             'term_end':               t_end,
@@ -467,12 +474,26 @@ def create_tables(conn):
             expected_market_value   REAL,
             expected_surplus        REAL,   -- what was expected at signing
 
+            -- Deferral
+            has_deferral            INTEGER DEFAULT 0,
+            cbt_aav                 REAL,
+            effective_aav           REAL,   -- cbt_aav if deferred, else aav
+
             -- Raw WAR data for sparklines
             war_by_season_json      TEXT,
 
             UNIQUE(name, signing_class, new_team)
         );
     """)
+    conn.commit()
+
+    # Migrate existing table if columns are missing
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(contract_valuations)")}
+    for col, typ in [('has_deferral', 'INTEGER DEFAULT 0'),
+                     ('cbt_aav',      'REAL'),
+                     ('effective_aav','REAL')]:
+        if col not in existing:
+            conn.execute(f"ALTER TABLE contract_valuations ADD COLUMN {col} {typ}")
     conn.commit()
 
 def main():
@@ -526,14 +547,14 @@ def main():
             contract_status, baseline_war, expected_war_total, expected_war_per_season,
             seasons_played, total_realized_war, market_rate_at_signing,
             realized_market_value, realized_surplus, expected_market_value,
-            expected_surplus, war_by_season_json
+            expected_surplus, has_deferral, cbt_aav, effective_aav, war_by_season_json
         ) VALUES (
             :name, :canonical_name, :match_type, :signing_class, :position, :position_group, :role,
             :new_team, :age_at_signing, :years, :aav, :guarantee, :term_start, :term_end,
             :contract_status, :baseline_war, :expected_war_total, :expected_war_per_season,
             :seasons_played, :total_realized_war, :market_rate_at_signing,
             :realized_market_value, :realized_surplus, :expected_market_value,
-            :expected_surplus, :war_by_season_json
+            :expected_surplus, :has_deferral, :cbt_aav, :effective_aav, :war_by_season_json
         )
     """, valuations)
     conn.commit()

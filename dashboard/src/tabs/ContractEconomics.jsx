@@ -117,7 +117,7 @@ function ContractRow({ c, maxSurplus, idx }) {
       >
         <td style={td}>{idx + 1}</td>
         <td style={{ ...td, fontFamily: "Bebas Neue, sans-serif", fontSize: 15, letterSpacing: "0.04em", color: T.textHi }}>
-          {c.name}
+          {c.name}{c.has_deferral ? <span style={{ color: T.gold, fontSize: 11, marginLeft: 2 }} title="CBT-adjusted AAV — see footnote">*</span> : null}
           {isActive && <span style={{ marginLeft: 6, fontSize: 9, background: T.accentMid, color: "#fff", padding: "1px 5px", borderRadius: 3, letterSpacing: "0.08em" }}>ACTIVE</span>}
         </td>
         <td style={{ ...td, color: T.textLow }}>{c.signing_class}</td>
@@ -162,6 +162,7 @@ function ContractRow({ c, maxSurplus, idx }) {
                 {[
                   ["Guarantee", fmt.dollars(c.guarantee)],
                   ["AAV", fmt.dollars(c.aav)],
+                  ...(c.has_deferral ? [["CBT AAV*", fmt.dollars(c.cbt_aav)]] : []),
                   ["% of CBT", fmt.pct(c.pct_of_cbt)],
                   ["% of Payroll", fmt.pct(c.pct_of_payroll)],
                   ["Baseline WAR", fmt.war(c.baseline_war)],
@@ -326,6 +327,9 @@ function LeaderboardView() {
       )}
       <div style={{ marginTop: 8, fontSize: 11, color: T.textLow, fontFamily: "DM Mono, monospace" }}>
         {contracts.length} contracts · Click any row to expand · Surplus = (WAR × $/WAR at signing) − salary paid
+      </div>
+      <div style={{ marginTop: 6, fontSize: 10, color: T.textLow, fontFamily: "DM Mono, monospace", lineHeight: 1.6, maxWidth: 700, padding: "8px 12px", background: T.bgCard, borderRadius: 6, border:  }}>
+        <span style={{ color: T.gold }}>* CBT-ADJUSTED AAV</span> — For contracts with deferred salary, AAV reflects the present value of total compensation per CBA Art. XXIII §E(6). Deferred amounts are discounted at the IRS mid-term AFR for the signing year; payments assumed in equal annual installments over the stated deferral window. Actual CBT AAV may vary slightly from the official MLBPA calculation based on exact payment schedules and interest compounding. Source: Spotrac (Apr 2026).
       </div>
     </div>
   );
