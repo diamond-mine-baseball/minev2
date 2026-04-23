@@ -129,19 +129,20 @@ function ContractRow({ c, maxSurplus, idx }) {
         </td>
         <td style={{ ...td, color: T.textMid, fontFamily: "DM Mono, monospace" }}>{c.age_at_signing}</td>
         <td style={{ ...td, fontFamily: "DM Mono, monospace", color: T.textMid }}>{c.years}yr / {fmt.dollars(c.aav)}</td>
+        <td style={{ ...td, fontFamily: "DM Mono, monospace", color: T.textLow }}>{fmt.dollars(c.guarantee)}</td>
         <td style={{ ...td, fontFamily: "DM Mono, monospace", color: c.total_realized_war >= 3 ? T.accent : T.textMid }}>
           {fmt.war(c.total_realized_war)}
         </td>
         <td style={td}>
           <SurplusBar value={surplus} max={maxSurplus} />
         </td>
-        <td style={{ ...td, fontFamily: "DM Mono, monospace", color: T.textLow, fontSize: 11 }}>
+        <td style={{ ...td, fontFamily: "DM Mono, monospace", color: T.textLow, fontSize: 11 }} title="AAV ÷ CBT threshold at signing year">
           {fmt.pct(c.pct_of_cbt)}
         </td>
       </tr>
       {open && (
         <tr style={{ background: "#0f0c20", borderBottom: `1px solid ${T.border}` }}>
-          <td colSpan={10} style={{ padding: "12px 20px 16px" }}>
+          <td colSpan={11} style={{ padding: "12px 20px 16px" }}>
             <div style={{ display: "flex", gap: 32, flexWrap: "wrap", alignItems: "flex-start" }}>
               <div>
                 <div style={{ color: T.textLow, fontSize: 10, letterSpacing: "0.1em", fontFamily: "DM Mono, monospace", marginBottom: 6 }}>WAR BY SEASON</div>
@@ -306,9 +307,10 @@ function LeaderboardView() {
                 <th style={th}>POS</th>
                 <th style={th}>AGE</th>
                 <th style={th}>CONTRACT</th>
+                <th style={th}>LTV</th>
                 <th style={th}>WAR</th>
                 <th style={{ ...th, minWidth: 260 }}>SURPLUS</th>
-                <th style={th}>CBT%</th>
+                <th style={th} title="AAV ÷ CBT threshold at signing year">CBT AAV%</th>
               </tr>
             </thead>
             <tbody>
@@ -316,7 +318,7 @@ function LeaderboardView() {
                 <ContractRow key={`${c.name}-${c.signing_class}-${c.new_team}`} c={c} maxSurplus={maxSurplus} idx={i} />
               ))}
               {contracts.length === 0 && (
-                <tr><td colSpan={10} style={{ padding: 32, textAlign: "center", color: T.textLow, fontFamily: "DM Mono, monospace" }}>NO CONTRACTS FOUND</td></tr>
+                <tr><td colSpan={11} style={{ padding: 32, textAlign: "center", color: T.textLow, fontFamily: "DM Mono, monospace" }}>NO CONTRACTS FOUND</td></tr>
               )}
             </tbody>
           </table>
@@ -435,20 +437,22 @@ const TEAMS_LIST = [
 ];
 
 function TeamView() {
-  const [team, setTeam] = useState("LAN");
-  const [data, setData] = useState(null);
+  const [team, setTeam]     = useState("LAN");
+  const [data, setData]     = useState(null);
   const [loading, setLoading] = useState(false);
+  const [sortBy, setSortBy] = useState("signing_class");
+  const [order, setOrder]   = useState("desc");
 
-  const load = useCallback(async (t) => {
+  const load = useCallback(async (t, sb, ord) => {
     setLoading(true);
     try {
-      const res = await fetch(`${API}/economics/team?team=${t}&sort_by=signing_class&order=desc`);
+      const res = await fetch(`${API}/economics/team?team=${t}&sort_by=${sb}&order=${ord}`);
       setData(await res.json());
     } catch { setData(null); }
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(team); }, [team, load]);
+  useEffect(() => { load(team, sortBy, order); }, [team, sortBy, order, load]);
 
   const s = data?.summary;
   const surplusColor = s?.total_surplus >= 0 ? T.green : T.red;
@@ -466,6 +470,28 @@ function TeamView() {
             color: team === code ? T.accent : T.textLow,
           }} title={name}>{abbr(code)}</button>
         ))}
+      </div>
+
+      {/* Sort controls */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 10, color: T.textLow, fontFamily: "DM Mono, monospace", letterSpacing: "0.1em" }}>SORT</span>
+        {[
+          { val: "signing_class",   label: "Year" },
+          { val: "realized_surplus",label: "Surplus" },
+          { val: "aav",             label: "AAV" },
+          { val: "total_realized_war", label: "WAR" },
+        ].map(o => (
+          <button key={o.val} onClick={() => setSortBy(o.val)} style={{
+            padding: "4px 10px", borderRadius: 4, fontSize: 11, fontFamily: "DM Mono, monospace",
+            cursor: "pointer", border: sortBy === o.val ? `1px solid ${T.blue}` : `1px solid ${T.border}`,
+            background: sortBy === o.val ? T.blue + "22" : "transparent",
+            color: sortBy === o.val ? T.blue : T.textLow,
+          }}>{o.label}</button>
+        ))}
+        <button onClick={() => setOrder(o => o === "desc" ? "asc" : "desc")} style={{
+          padding: "4px 10px", borderRadius: 4, fontSize: 11, fontFamily: "DM Mono, monospace",
+          cursor: "pointer", border: `1px solid ${T.border}`, background: "transparent", color: T.textMid,
+        }}>{order === "desc" ? "▼ High first" : "▲ Low first"}</button>
       </div>
 
       {loading && <div style={{ textAlign: "center", padding: 48, color: T.textLow, fontFamily: "DM Mono, monospace" }}>LOADING…</div>}
@@ -521,8 +547,8 @@ function TeamView() {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ background: T.bgDeep }}>
-                  {["PLAYER","CLASS","POS","AGE","CONTRACT","WAR","SURPLUS","CBT%","PAYROLL%"].map(h => (
-                    <th key={h} style={th}>{h}</th>
+                  {["PLAYER","CLASS","POS","AGE","CONTRACT","LTV","WAR","SURPLUS","CBT AAV%","PAYROLL%"].map(h => (
+                    <th key={h} style={h === "CBT AAV%" ? {...th, cursor:"help"} : th} title={h === "CBT AAV%" ? "AAV ÷ CBT threshold at signing year" : undefined}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -541,6 +567,7 @@ function TeamView() {
                       <td style={{ ...td, fontFamily: "DM Mono, monospace", fontSize: 11, color: T.textLow }}>{c.position_group}</td>
                       <td style={{ ...td, fontFamily: "DM Mono, monospace", color: T.textLow }}>{c.age_at_signing}</td>
                       <td style={{ ...td, fontFamily: "DM Mono, monospace", color: T.textMid }}>{c.years}yr / {fmt.dollars(c.aav)}</td>
+                      <td style={{ ...td, fontFamily: "DM Mono, monospace", color: T.textLow }}>{fmt.dollars(c.guarantee)}</td>
                       <td style={{ ...td, fontFamily: "DM Mono, monospace", color: c.total_realized_war >= 3 ? T.accent : T.textMid }}>
                         {fmt.war(c.total_realized_war)}
                       </td>

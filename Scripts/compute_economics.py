@@ -168,12 +168,8 @@ def resolve_name(contract_name, name_map, fuzzy_keys=None):
     return None, 'unmatched'
 
 # ── WAR lookup ────────────────────────────────────────────────────────────────
-def get_war_by_season(conn, canonical_name, role, term_start, term_end):
-    """
-    Returns dict of {season: bwar} for a player across their contract term.
-    Handles multi-team seasons by preferring TOT/2TM/3TM aggregate rows.
-    """
-    table = 'pitching' if role == 'pitcher' else 'batting'
+def _best_war_from_table(conn, table, canonical_name, season_start, season_end):
+    """Returns {season: bwar} from a single table, preferring aggregate rows."""
     rows = conn.execute(f"""
         SELECT season, team, bwar
         FROM {table}
@@ -181,53 +177,56 @@ def get_war_by_season(conn, canonical_name, role, term_start, term_end):
           AND season >= ? AND season <= ?
           AND bwar IS NOT NULL
         ORDER BY season, team
-    """, (canonical_name, term_start, term_end)).fetchall()
-
-    # For each season, prefer aggregate rows over individual team rows
+    """, (canonical_name, season_start, season_end)).fetchall()
     season_war = {}
     for season, team, bwar in rows:
         if season not in season_war:
             season_war[season] = bwar
         elif team.upper() in ('TOT', '2TM', '3TM', '4TM'):
-            season_war[season] = bwar  # override with aggregate
+            season_war[season] = bwar
     return season_war
+
+
+def get_war_by_season(conn, canonical_name, role, term_start, term_end):
+    """
+    Returns {season: bwar} summed across batting + pitching tables.
+    Handles two-way players (Ohtani) — normal players get zero from the secondary table.
+    """
+    bat_war = _best_war_from_table(conn, 'batting',  canonical_name, term_start, term_end)
+    pit_war = _best_war_from_table(conn, 'pitching', canonical_name, term_start, term_end)
+    all_seasons = set(bat_war) | set(pit_war)
+    return {s: round(bat_war.get(s, 0) + pit_war.get(s, 0), 2) for s in all_seasons}
 
 def get_baseline_war(conn, canonical_name, role, term_start, lookback=3):
     """
-    PA/IP-weighted average WAR over the `lookback` seasons before signing.
-    Used as the baseline for aging curve projections.
+    PA/IP-weighted average WAR over the lookback seasons before signing.
+    Sums batting + pitching WAR for two-way players.
     """
-    table = 'pitching' if role == 'pitcher' else 'batting'
-    weight_col = 'ip' if role == 'pitcher' else 'pa'
-
-    rows = conn.execute(f"""
-        SELECT season, bwar, {weight_col}
-        FROM {table}
-        WHERE name = ?
-          AND season >= ? AND season < ?
-          AND bwar IS NOT NULL
-          AND {weight_col} IS NOT NULL AND {weight_col} > 0
-          AND team NOT IN ('TOT','2TM','3TM','4TM')
-        ORDER BY season DESC
-        LIMIT ?
-    """, (canonical_name, term_start - lookback, term_start, lookback * 3)).fetchall()
-
-    # Use most recent season's team rows; sum to season level first
     season_data = {}
-    for season, bwar, weight in rows:
-        if season not in season_data:
-            season_data[season] = {'war': 0, 'weight': 0}
-        season_data[season]['war'] += bwar
-        season_data[season]['weight'] += weight
+    for table, weight_col in [('batting', 'pa'), ('pitching', 'ip')]:
+        rows = conn.execute(f"""
+            SELECT season, bwar, {weight_col}
+            FROM {table}
+            WHERE name = ?
+              AND season >= ? AND season < ?
+              AND bwar IS NOT NULL
+              AND {weight_col} IS NOT NULL AND {weight_col} > 0
+              AND team NOT IN ('TOT','2TM','3TM','4TM')
+            ORDER BY season DESC
+            LIMIT ?
+        """, (canonical_name, term_start - lookback, term_start, lookback * 3)).fetchall()
+        for season, bwar, weight in rows:
+            if season not in season_data:
+                season_data[season] = {'war': 0, 'weight': 0}
+            season_data[season]['war'] += bwar
+            season_data[season]['weight'] += weight
 
     if not season_data:
         return None
 
-    # Take up to `lookback` most recent seasons
     recent = sorted(season_data.keys(), reverse=True)[:lookback]
     total_war = sum(season_data[s]['war'] * season_data[s]['weight'] for s in recent)
     total_weight = sum(season_data[s]['weight'] for s in recent)
-
     return round(total_war / total_weight, 3) if total_weight > 0 else None
 
 # ── Market rate derivation ────────────────────────────────────────────────────
