@@ -959,14 +959,25 @@ def _compute_pitcher_sdi(conn, current, season):
     }
 
 
+if __name__ == "__main__":
+    import uvicorn
+    port = int(_os.getenv("PORT", 5001))
+    print(f"""
+╔══════════════════════════════════════╗
+║   DiamondMine API v2.0               ║
+║   http://localhost:{port}              ║
+║   Docs: http://localhost:{port}/docs   ║
+╚══════════════════════════════════════╝
+""")
+    uvicorn.run(app, host="0.0.0.0", port=port)
 
 
 # ── Economics endpoints ───────────────────────────────────────────────────────
 
 @app.get("/economics/market-rates")
-def economics_market_rates(db: sqlite3.Connection = Depends(get_db)):
-    """$/WAR by FA signing class year, 1991-present."""
-    rows = db.execute("""
+def economics_market_rates():
+    conn = get_db()
+    rows = conn.execute("""
         SELECT season, dollars_per_war, sample_size, total_contracts, match_rate
         FROM market_rates ORDER BY season
     """).fetchall()
@@ -975,20 +986,20 @@ def economics_market_rates(db: sqlite3.Connection = Depends(get_db)):
 
 @app.get("/economics/leaderboard")
 def economics_leaderboard(
-    position_group: str = "",
-    status: str = "",           # complete | active | future
-    team: str = "",
-    contract_type: str = "",    # fa | extension | international
-    era_start: int = 0,
-    era_end: int = 9999,
-    sort_by: str = "realized_surplus",
-    order: str = "desc",
-    min_years: int = 1,
-    limit: int = 100,
-    db: sqlite3.Connection = Depends(get_db),
+    position_group: str = Query(""),
+    status: str        = Query(""),
+    team: str          = Query(""),
+    contract_type: str = Query(""),
+    era_start: int     = Query(0),
+    era_end: int       = Query(9999),
+    sort_by: str       = Query("realized_surplus"),
+    order: str         = Query("desc"),
+    min_years: int     = Query(1),
+    limit: int         = Query(200),
 ):
-    """Contract surplus leaderboard with filters."""
-    where = ["cv.realized_surplus IS NOT NULL", "cv.years >= :min_years",
+    conn = get_db()
+    where = ["cv.realized_surplus IS NOT NULL",
+             "cv.years >= :min_years",
              "cv.signing_class BETWEEN :era_start AND :era_end"]
     params = dict(min_years=min_years, era_start=era_start, era_end=era_end)
 
@@ -1002,107 +1013,101 @@ def economics_leaderboard(
         where.append("cv.new_team = :team")
         params["team"] = team
     if contract_type:
-        where.append("COALESCE(c.contract_type, 'fa') = :contract_type")
+        where.append("COALESCE(c.contract_type,'fa') = :contract_type")
         params["contract_type"] = contract_type
 
-    valid_sort = {"realized_surplus", "expected_surplus", "total_realized_war",
-                  "aav", "guarantee", "signing_class", "years"}
-    sort_col = sort_by if sort_by in valid_sort else "realized_surplus"
+    valid = {"realized_surplus","expected_surplus","total_realized_war",
+             "aav","guarantee","signing_class","years"}
+    col = sort_by if sort_by in valid else "realized_surplus"
     direction = "ASC" if order.lower() == "asc" else "DESC"
 
-    rows = db.execute(f"""
+    rows = conn.execute(f"""
         SELECT cv.name, cv.canonical_name, cv.signing_class, cv.position,
                cv.position_group, cv.new_team, cv.age_at_signing, cv.years,
                cv.aav, cv.guarantee, cv.term_start, cv.term_end,
                cv.contract_status, cv.total_realized_war,
                cv.realized_surplus, cv.expected_surplus,
                cv.market_rate_at_signing, cv.realized_market_value,
-               COALESCE(c.contract_type, 'fa') AS contract_type,
-               COALESCE(c.has_deferral, 0) AS has_deferral,
+               COALESCE(c.contract_type,'fa')  AS contract_type,
+               COALESCE(c.has_deferral,0)      AS has_deferral,
                c.cbt_aav, c.pre_arb_years, c.arb_years, c.fa_years
         FROM contract_valuations cv
-        LEFT JOIN contracts c ON c.name = cv.name
-                              AND c.signing_class = cv.signing_class
-                              AND c.new_team = cv.new_team
+        LEFT JOIN contracts c
+               ON c.name = cv.name
+              AND c.signing_class = cv.signing_class
+              AND c.new_team = cv.new_team
         WHERE {" AND ".join(where)}
-        ORDER BY cv.{sort_col} {direction}
+        ORDER BY cv.{col} {direction}
         LIMIT :limit
-    """, {{**params, "limit": limit}}).fetchall()
-
+    """, {**params, "limit": limit}).fetchall()
     return [dict(r) for r in rows]
 
 
 @app.get("/economics/player")
-def economics_player(
-    name: str,
-    db: sqlite3.Connection = Depends(get_db),
-):
-    """All contracts + valuations for one player."""
-    rows = db.execute("""
-        SELECT cv.*, COALESCE(c.contract_type, 'fa') AS contract_type,
+def economics_player(name: str = Query(...)):
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT cv.*, COALESCE(c.contract_type,'fa') AS contract_type,
                c.agent, c.has_deferral, c.cbt_aav,
                c.pre_arb_years, c.arb_years, c.fa_years,
                c.source_league, c.ml_service_at_signing
         FROM contract_valuations cv
-        LEFT JOIN contracts c ON c.name = cv.name
-                              AND c.signing_class = cv.signing_class
-                              AND c.new_team = cv.new_team
-        WHERE cv.canonical_name LIKE :name OR cv.name LIKE :name
+        LEFT JOIN contracts c
+               ON c.name = cv.name
+              AND c.signing_class = cv.signing_class
+              AND c.new_team = cv.new_team
+        WHERE cv.canonical_name LIKE :n OR cv.name LIKE :n
         ORDER BY cv.signing_class
-    """, {"name": f"%{name}%"}).fetchall()
+    """, {"n": f"%{name}%"}).fetchall()
     return [dict(r) for r in rows]
 
 
 @app.get("/economics/team")
 def economics_team(
-    team: str,
-    era_start: int = 1991,
-    era_end: int = 9999,
-    sort_by: str = "signing_class",
-    order: str = "desc",
-    db: sqlite3.Connection = Depends(get_db),
+    team: str      = Query(...),
+    era_start: int = Query(1991),
+    era_end: int   = Query(9999),
+    sort_by: str   = Query("signing_class"),
+    order: str     = Query("desc"),
 ):
-    """All contracts for one team with cumulative surplus."""
-    valid_sort = {"signing_class", "realized_surplus", "aav", "guarantee",
-                  "total_realized_war", "years"}
-    sort_col = sort_by if sort_by in valid_sort else "signing_class"
+    conn = get_db()
+    valid = {"signing_class","realized_surplus","aav","guarantee",
+             "total_realized_war","years"}
+    col = sort_by if sort_by in valid else "signing_class"
     direction = "ASC" if order.lower() == "asc" else "DESC"
 
-    rows = db.execute(f"""
+    rows = conn.execute(f"""
         SELECT cv.name, cv.canonical_name, cv.signing_class, cv.position,
                cv.position_group, cv.age_at_signing, cv.years,
                cv.aav, cv.guarantee, cv.term_start, cv.term_end,
                cv.contract_status, cv.total_realized_war,
                cv.realized_surplus, cv.expected_surplus,
                cv.market_rate_at_signing,
-               COALESCE(c.contract_type, 'fa') AS contract_type,
-               COALESCE(c.has_deferral, 0) AS has_deferral,
+               COALESCE(c.contract_type,'fa') AS contract_type,
+               COALESCE(c.has_deferral,0)    AS has_deferral,
                c.cbt_aav, c.agent
         FROM contract_valuations cv
-        LEFT JOIN contracts c ON c.name = cv.name
-                              AND c.signing_class = cv.signing_class
-                              AND c.new_team = cv.new_team
+        LEFT JOIN contracts c
+               ON c.name = cv.name
+              AND c.signing_class = cv.signing_class
+              AND c.new_team = cv.new_team
         WHERE cv.new_team = :team
           AND cv.signing_class BETWEEN :era_start AND :era_end
           AND cv.realized_surplus IS NOT NULL
-        ORDER BY cv.{sort_col} {direction}
+        ORDER BY cv.{col} {direction}
     """, dict(team=team, era_start=era_start, era_end=era_end)).fetchall()
 
     contracts = [dict(r) for r in rows]
-
-    total_spent    = sum(r["guarantee"]        or 0 for r in contracts)
-    total_surplus  = sum(r["realized_surplus"]  or 0 for r in contracts)
-    total_war      = sum(r["total_realized_war"] or 0 for r in contracts)
-    wins           = sum(1 for r in contracts if (r["realized_surplus"] or 0) > 0)
-
+    total_spent   = sum(r["guarantee"]         or 0 for r in contracts)
+    total_surplus = sum(r["realized_surplus"]  or 0 for r in contracts)
+    total_war     = sum(r["total_realized_war"] or 0 for r in contracts)
+    wins          = sum(1 for r in contracts if (r["realized_surplus"] or 0) > 0)
     return {
-        "team": team,
-        "era_start": era_start,
-        "era_end": era_end,
+        "team": team, "era_start": era_start, "era_end": era_end,
         "total_contracts": len(contracts),
-        "total_spent": total_spent,
+        "total_spent":   total_spent,
         "total_surplus": total_surplus,
-        "total_war": total_war,
+        "total_war":     total_war,
         "win_rate": round(wins / len(contracts) * 100, 1) if contracts else 0,
         "contracts": contracts,
     }
@@ -1110,88 +1115,69 @@ def economics_team(
 
 @app.get("/economics/payroll")
 def economics_payroll(
-    team: str = "",
-    season: int = 0,
-    contract_type: str = "",
-    db: sqlite3.Connection = Depends(get_db),
+    team: str          = Query(""),
+    season: int        = Query(0),
+    contract_type: str = Query(""),
 ):
-    """Per-player opening day payroll from player_salaries table."""
+    conn = get_db()
     where = ["1=1"]
     params: dict = {}
     if team:
-        where.append("team = :team")
-        params["team"] = team
+        where.append("team = :team"); params["team"] = team
     if season:
-        where.append("season = :season")
-        params["season"] = season
+        where.append("season = :season"); params["season"] = season
     if contract_type:
         where.append("contract_type = :contract_type")
         params["contract_type"] = contract_type
 
-    rows = db.execute(f"""
+    rows = conn.execute(f"""
         SELECT name, team, season, salary, cbt_aav, position,
                ml_service, age, agent, contract_notes, contract_type,
                draft_year, draft_round, is_international
         FROM player_salaries
         WHERE {" AND ".join(where)}
-        ORDER BY season DESC, salary DESC NULLS LAST
+        ORDER BY season DESC, salary DESC
         LIMIT 500
     """, params).fetchall()
-
     return [dict(r) for r in rows]
 
 
 @app.get("/economics/extensions")
 def economics_extensions(
-    team: str = "",
-    era_start: int = 2009,
-    era_end: int = 9999,
-    position_group: str = "",
-    sort_by: str = "signing_class",
-    order: str = "desc",
-    db: sqlite3.Connection = Depends(get_db),
+    team: str          = Query(""),
+    era_start: int     = Query(2009),
+    era_end: int       = Query(9999),
+    position_group: str= Query(""),
+    sort_by: str       = Query("signing_class"),
+    order: str         = Query("desc"),
 ):
-    """Extensions and international signings with service-time bucket breakdown."""
-    where = ["contract_type IN ('extension', 'international')", "is_mlb = 1",
-             "aav IS NOT NULL", "signing_class BETWEEN :era_start AND :era_end"]
+    conn = get_db()
+    where = ["contract_type IN ('extension','international')",
+             "is_mlb = 1", "aav IS NOT NULL",
+             "signing_class BETWEEN :era_start AND :era_end"]
     params = dict(era_start=era_start, era_end=era_end)
-
     if team:
-        where.append("new_team = :team")
-        params["team"] = team
+        where.append("new_team = :team"); params["team"] = team
     if position_group:
         where.append("position_group = :position_group")
         params["position_group"] = position_group
 
-    valid_sort = {"signing_class", "aav", "guarantee", "years",
-                  "fa_years", "pre_arb_years", "arb_years"}
-    sort_col = sort_by if sort_by in valid_sort else "signing_class"
+    valid = {"signing_class","aav","guarantee","years","fa_years",
+             "pre_arb_years","arb_years"}
+    col = sort_by if sort_by in valid else "signing_class"
     direction = "ASC" if order.lower() == "asc" else "DESC"
 
-    rows = db.execute(f"""
+    rows = conn.execute(f"""
         SELECT name, signing_class, new_team, position, position_group,
                age_at_signing, years, guarantee, aav, term_start, term_end,
                contract_type, ml_service_at_signing,
                pre_arb_years, arb_years, fa_years,
                CASE WHEN years > 0
-                    THEN ROUND(CAST(COALESCE(fa_years,0) AS REAL) / years * 100, 1)
+                    THEN ROUND(CAST(COALESCE(fa_years,0) AS REAL)/years*100,1)
                     ELSE NULL END AS pct_fa_years,
                has_deferral, cbt_aav, source_league, agent
         FROM contracts
         WHERE {" AND ".join(where)}
-        ORDER BY {sort_col} {direction}
+        ORDER BY {col} {direction}
     """, params).fetchall()
-
     return [dict(r) for r in rows]
-
-if __name__ == "__main__":
-    import uvicorn
-    port = int(_os.getenv("PORT", 5001))
-    print(f"""
-╔══════════════════════════════════════╗
-║   DiamondMine API v2.0               ║
-║   http://localhost:{port}              ║
-║   Docs: http://localhost:{port}/docs   ║
-╚══════════════════════════════════════╝
-""")
-    uvicorn.run(app, host="0.0.0.0", port=port)
