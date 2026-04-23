@@ -1148,36 +1148,104 @@ def economics_extensions(
     era_start: int     = Query(2009),
     era_end: int       = Query(9999),
     position_group: str= Query(""),
-    sort_by: str       = Query("signing_class"),
+    sort_by: str       = Query("salary"),
     order: str         = Query("desc"),
 ):
+    """
+    Extensions and international signings from player_salaries table.
+    Deduped to one row per (name, team) keeping highest salary season.
+    Joined to contracts for WAR/surplus data where available.
+    """
     conn = get_db()
-    where = ["contract_type IN ('extension','international')",
-             "is_mlb = 1", "aav IS NOT NULL",
-             "signing_class BETWEEN :era_start AND :era_end"]
-    params = dict(era_start=era_start, era_end=era_end)
-    if team:
-        where.append("new_team = :team"); params["team"] = team
-    if position_group:
-        where.append("position_group = :position_group")
-        params["position_group"] = position_group
 
-    valid = {"signing_class","aav","guarantee","years","fa_years",
-             "pre_arb_years","arb_years"}
-    col = sort_by if sort_by in valid else "signing_class"
+    POS_MAP = {
+        'sp':'SP','rhp-s':'SP','lhp-s':'SP',
+        'rp':'RP','lhp':'RP','rhp':'RP','rhp-r':'RP','lhp-r':'RP','lhp-c':'RP',
+        'c':'C','1b':'1B','2b':'2B','3b':'3B','ss':'SS',
+        'lf':'OF','cf':'OF','rf':'OF','of':'OF','dh':'DH','util':'UTIL',
+    }
+
+    where = ["ps.contract_type IN ('extension','international')",
+             "ps.season BETWEEN :era_start AND :era_end"]
+    params: dict = dict(era_start=era_start, era_end=era_end)
+    if team:
+        where.append("ps.team = :team"); params["team"] = team
+    if position_group:
+        where.append("UPPER(COALESCE(ps.position,'')) IN (:pg1,:pg2,:pg3,:pg4,:pg5)")
+        # Map position_group → raw positions for the WHERE clause
+        PG_TO_POS = {
+            'SP':['sp','rhp-s','lhp-s'],'RP':['rp','lhp','rhp','rhp-r','lhp-r'],
+            'OF':['lf','cf','rf','of'],
+        }
+        pos_list = PG_TO_POS.get(position_group.upper(), [position_group.lower()])
+        pos_list += [''] * (5 - len(pos_list))
+        for idx, p in enumerate(pos_list[:5], 1):
+            params[f'pg{idx}'] = p.upper()
+
+    valid = {"salary","season","ml_service"}
+    col = f"ps.{sort_by}" if sort_by in valid else "ps.salary"
     direction = "ASC" if order.lower() == "asc" else "DESC"
 
+    # One row per (name, team) — pick the season with highest salary
     rows = conn.execute(f"""
-        SELECT name, signing_class, new_team, position, position_group,
-               age_at_signing, years, guarantee, aav, term_start, term_end,
-               contract_type, ml_service_at_signing,
-               pre_arb_years, arb_years, fa_years,
-               CASE WHEN years > 0
-                    THEN ROUND(CAST(COALESCE(fa_years,0) AS REAL)/years*100,1)
-                    ELSE NULL END AS pct_fa_years,
-               has_deferral, cbt_aav, source_league, agent
-        FROM contracts
+        SELECT
+            ps.name,
+            ps.team,
+            MIN(ps.season)                              AS first_season,
+            MAX(ps.season)                              AS last_season,
+            ps.position,
+            ps.contract_type,
+            ps.ml_service,
+            ps.age,
+            ps.agent,
+            ps.contract_notes,
+            ps.is_international,
+            ps.draft_year,
+            MAX(ps.salary)                              AS salary,
+            -- Join contract valuations for WAR/surplus
+            cv.total_realized_war,
+            cv.realized_surplus,
+            cv.years,
+            cv.aav,
+            cv.guarantee,
+            cv.term_start,
+            cv.term_end,
+            cv.contract_status,
+            cv.market_rate_at_signing,
+            c.pre_arb_years,
+            c.arb_years,
+            c.fa_years,
+            CASE WHEN c.years > 0
+                 THEN ROUND(CAST(COALESCE(c.fa_years,0) AS REAL)/c.years*100,1)
+                 ELSE NULL END AS pct_fa_years,
+            c.has_deferral,
+            c.cbt_aav,
+            c.source_league
+        FROM player_salaries ps
+        LEFT JOIN contract_valuations cv
+               ON LOWER(cv.name) = LOWER(ps.name)
+              AND cv.new_team = ps.team
+              AND cv.term_start <= ps.season
+              AND cv.term_end   >= ps.season
+        LEFT JOIN contracts c
+               ON c.rowid = (
+                   SELECT rowid FROM contracts cc
+                   WHERE LOWER(cc.name) = LOWER(ps.name)
+                     AND cc.new_team = ps.team
+                     AND cc.is_mlb = 1
+                   ORDER BY ABS(cc.signing_class - ps.season)
+                   LIMIT 1
+               )
         WHERE {" AND ".join(where)}
+        GROUP BY ps.name, ps.team, ps.contract_type
         ORDER BY {col} {direction}
+        LIMIT 500
     """, params).fetchall()
-    return [dict(r) for r in rows]
+
+    result = []
+    for r in rows:
+        d = dict(r)
+        pos = (d.get('position') or '').lower().strip()
+        d['position_group'] = POS_MAP.get(pos, pos.upper() if pos else None)
+        result.append(d)
+    return result

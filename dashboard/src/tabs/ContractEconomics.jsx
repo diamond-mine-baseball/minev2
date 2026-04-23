@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { T } from '../theme'
 
-const API = import.meta.env.VITE_API_URL || 'https://minev2-production-84a2.up.railway.app'
+const API = '/api'
 
 const fmt = {
   dollars: v => v == null ? '—' : v >= 1e9 ? `$${(v/1e9).toFixed(2)}B`
@@ -445,10 +445,10 @@ function ExtensionsView() {
       <div style={{overflowX:'auto'}}>
         <table style={tableStyle}>
           <thead><tr>
-            {[['YR','signing_class'],['PLAYER',null],['TYPE',null],['TEAM',null],
-              ['POS',null],['MLS',null],['YRS','years'],['GUARANTEE','guarantee'],
-              ['AAV','aav'],['PRE','pre_arb_years'],['ARB','arb_years'],
-              ['FA','fa_years'],['%FA','pct_fa_years']].map(([l,f])=>(
+            {[['SEASONS',null],['PLAYER',null],['TYPE',null],['TEAM',null],
+              ['POS',null],['MLS','ml_service'],['YRS','years'],['GUARANTEE','guarantee'],
+              ['SALARY','salary'],['PRE',null],['ARB',null],
+              ['FA',null],['%FA',null]].map(([l,f])=>(
               f?<SortTH key={f} label={l} field={f} sort={sort} onSort={onSort}/>
                :<th key={l} style={TH}>{l}</th>
             ))}
@@ -456,18 +456,18 @@ function ExtensionsView() {
           <tbody>
             {data.map((c,i)=>(
               <tr key={i}>
-                <td style={{...TD,fontFamily:'DM Mono',color:'#64748b'}}>{c.signing_class}</td>
+                <td style={{...TD,fontFamily:'DM Mono',color:'#64748b'}}>{c.first_season}–{c.last_season}</td>
                 <td style={{...TD,fontFamily:'Bebas Neue, sans-serif',fontSize:14,
                             letterSpacing:'0.04em',color:'#e2e8f0'}}>{c.name}</td>
                 <td style={TD}><Badge type={c.contract_type}/></td>
-                <td style={{...TD,color:'#64748b'}}>{c.new_team}</td>
-                <td style={{...TD,color:'#64748b'}}>{c.position}</td>
+                <td style={{...TD,color:'#64748b'}}>{c.team}</td>
+                <td style={{...TD,color:'#64748b'}}>{c.position_group}</td>
                 <td style={{...TD,color:'#64748b',fontFamily:'DM Mono',fontSize:11}}>
-                  {fmt.mls(c.ml_service_at_signing)}
+                  {fmt.mls(c.ml_service)}
                 </td>
-                <td style={{...TD,color:'#64748b'}}>{c.years}</td>
+                <td style={{...TD,color:'#64748b'}}>{c.years||'—'}</td>
                 <td style={TD}>{fmt.dollars(c.guarantee)}</td>
-                <td style={TD}>{fmt.dollars(c.aav)}</td>
+                <td style={TD}>{c.salary ? fmt.dollars(c.salary) : fmt.dollars(c.aav)}</td>
                 <td style={{...TD,color:'#22c55e',fontFamily:'DM Mono'}}>{c.pre_arb_years??'—'}</td>
                 <td style={{...TD,color:'#f59e0b',fontFamily:'DM Mono'}}>{c.arb_years??'—'}</td>
                 <td style={{...TD,color:'#3b82f6',fontFamily:'DM Mono'}}>{c.fa_years??'—'}</td>
