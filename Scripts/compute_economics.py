@@ -246,8 +246,10 @@ def derive_market_rates(conn, name_map, fuzzy_keys, min_war_per_season=0.5, verb
         WHERE is_mlb = 1
           AND aav IS NOT NULL AND aav > 0
           AND term_start IS NOT NULL
+          AND COALESCE(contract_type, 'fa') IN ('fa', 'international', 'extension')
           AND term_end <= ?
           AND years >= 1
+          AND COALESCE(contract_type, 'fa') IN ('fa', 'international')
         ORDER BY signing_class, name
     """, (current_year - 1,)).fetchall()
 
@@ -324,6 +326,7 @@ def compute_valuations(conn, name_map, fuzzy_keys, market_rates, verbose=False):
         WHERE is_mlb = 1
           AND aav IS NOT NULL AND aav > 0
           AND term_start IS NOT NULL
+          AND COALESCE(contract_type, 'fa') IN ('fa', 'international', 'extension')
     """).fetchall()
 
     valuations = []
@@ -406,7 +409,7 @@ def compute_valuations(conn, name_map, fuzzy_keys, market_rates, verbose=False):
             'cbt_aav':               cbt_aav_val,
             'effective_aav':          aav,  # cbt_aav if deferred, else face aav
             'years':                  yrs,
-            'aav':                    face_aav,
+            'aav':                    aav,
             'guarantee':              guar,
             'term_start':             t_start,
             'term_end':               t_end,
@@ -474,26 +477,12 @@ def create_tables(conn):
             expected_market_value   REAL,
             expected_surplus        REAL,   -- what was expected at signing
 
-            -- Deferral
-            has_deferral            INTEGER DEFAULT 0,
-            cbt_aav                 REAL,
-            effective_aav           REAL,   -- cbt_aav if deferred, else aav
-
             -- Raw WAR data for sparklines
             war_by_season_json      TEXT,
 
             UNIQUE(name, signing_class, new_team)
         );
     """)
-    conn.commit()
-
-    # Migrate existing table if columns are missing
-    existing = {row[1] for row in conn.execute("PRAGMA table_info(contract_valuations)")}
-    for col, typ in [('has_deferral', 'INTEGER DEFAULT 0'),
-                     ('cbt_aav',      'REAL'),
-                     ('effective_aav','REAL')]:
-        if col not in existing:
-            conn.execute(f"ALTER TABLE contract_valuations ADD COLUMN {col} {typ}")
     conn.commit()
 
 def main():
@@ -547,14 +536,14 @@ def main():
             contract_status, baseline_war, expected_war_total, expected_war_per_season,
             seasons_played, total_realized_war, market_rate_at_signing,
             realized_market_value, realized_surplus, expected_market_value,
-            expected_surplus, has_deferral, cbt_aav, effective_aav, war_by_season_json
+            expected_surplus, war_by_season_json
         ) VALUES (
             :name, :canonical_name, :match_type, :signing_class, :position, :position_group, :role,
             :new_team, :age_at_signing, :years, :aav, :guarantee, :term_start, :term_end,
             :contract_status, :baseline_war, :expected_war_total, :expected_war_per_season,
             :seasons_played, :total_realized_war, :market_rate_at_signing,
             :realized_market_value, :realized_surplus, :expected_market_value,
-            :expected_surplus, :has_deferral, :cbt_aav, :effective_aav, :war_by_season_json
+            :expected_surplus, :war_by_season_json
         )
     """, valuations)
     conn.commit()

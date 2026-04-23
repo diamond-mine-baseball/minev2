@@ -1,642 +1,522 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import {
-  Chart as ChartJS,
-  CategoryScale, LinearScale, PointElement,
-  LineElement, Tooltip, Legend, Filler,
-} from "chart.js";
-import { Line } from "react-chartjs-2";
+import React, { useState, useEffect, useCallback } from 'react'
+import { T } from '../theme'
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
-
-// ── Theme tokens (matches DiamondMine v2 theme.js) ──────────────────────────
-const T = {
-  bg:       "#07060f",
-  bgCard:   "#0d0b1a",
-  bgDeep:   "#050409",
-  border:   "#1c1838",
-  accent:   "#c084fc",
-  accentMid:"#a855f7",
-  textHi:   "#f5f0ff",
-  textMid:  "#c4b5e8",
-  textLow:  "#6b5fa0",
-  gold:     "#f59e0b",
-  red:      "#f87171",
-  green:    "#4ade80",
-  blue:     "#818cf8",
-};
-
-const API = import.meta.env.VITE_API_URL || "https://minev2-production-84a2.up.railway.app";
+const API = '/api'
 
 const fmt = {
-  dollars: (n) => n == null ? "—" : `$${(n / 1e6).toFixed(1)}M`,
-  pct:     (n) => n == null ? "—" : `${n.toFixed(1)}%`,
-  war:     (n) => n == null ? "—" : n.toFixed(1),
-  rate:    (n) => n == null ? "—" : `$${(n / 1e6).toFixed(2)}M`,
-};
+  dollars: v => v == null ? '—' : v >= 1e9 ? `$${(v/1e9).toFixed(2)}B`
+                                : v >= 1e6 ? `$${(v/1e6).toFixed(1)}M`
+                                : `$${Math.round(v).toLocaleString()}`,
+  war:     v => v == null ? '—' : v.toFixed(1),
+  surplus: v => v == null ? '—' : `${v >= 0 ? '+' : ''}$${(v/1e6).toFixed(1)}M`,
+  pct:     v => v == null ? '—' : `${v.toFixed(1)}%`,
+  mls:     v => v == null ? '—' : parseFloat(v).toFixed(3),
+}
 
-const POSITIONS = ["ALL","SP","RP","C","1B","2B","3B","SS","OF","DH"];
-const TEAM_MAP = {
-  NYA:"NYY", LAN:"LAD", BOS:"BOS", CHN:"CHC", SFN:"SFG",
-  PHI:"PHI", HOU:"HOU", ATL:"ATL", NYN:"NYM", SLN:"STL",
-  MIN:"MIN", SEA:"SEA", TEX:"TEX", SDN:"SDP", ARI:"ARI",
-  TOR:"TOR", CLE:"CLE", DET:"DET", MIL:"MIL", TBA:"TBR",
-  BAL:"BAL", KCA:"KCR", CIN:"CIN", PIT:"PIT", COL:"COL",
-  OAK:"OAK", ATH:"ATH", ANA:"LAA", MIA:"MIA", WAS:"WSN", CHA:"CWS",
-};
-const abbr = (t) => TEAM_MAP[t] || t;
+const SURPLUS_COLOR = v =>
+  v == null ? '#6b7280' : v > 50e6 ? '#22c55e' : v > 0 ? '#86efac'
+  : v > -30e6 ? '#fca5a5' : '#ef4444'
 
-// ── Surplus bar (zero-centered) ──────────────────────────────────────────────
-function SurplusBar({ value, max }) {
-  if (value == null) return <span style={{ color: T.textLow, fontFamily: "DM Mono, monospace" }}>—</span>;
-  const pct = Math.min(Math.abs(value) / max, 1) * 45;
-  const pos = value >= 0;
+const TYPE_COLOR = { fa:'#3b82f6', extension:'#a855f7', international:'#f59e0b',
+                     arb:'#6b7280', pre_arb:'#374151', trade:'#0ea5e9' }
+const TYPE_LABEL = { fa:'FA', extension:'EXT', international:'INTL',
+                     arb:'ARB', pre_arb:'PRE', trade:'TRD' }
+
+function Badge({ type }) {
+  return <span style={{ fontSize:9, fontFamily:'DM Mono, monospace', letterSpacing:'0.06em',
+    padding:'1px 5px', borderRadius:3, background: TYPE_COLOR[type]||'#374151',
+    color:'#fff', whiteSpace:'nowrap' }}>{TYPE_LABEL[type]||type?.toUpperCase()||'?'}</span>
+}
+
+function Deferred() {
+  return <span style={{ color:'#f59e0b', fontSize:11, marginLeft:2 }}
+    title="CBT-adjusted AAV per CBA Art. XXIII §E(6)">*</span>
+}
+
+const VIEWS = ['LEADERBOARD','MARKET RATE','BY TEAM','PAYROLL','EXTENSIONS']
+
+function SubNav({ active, onChange }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "DM Mono, monospace", fontSize: 12 }}>
-      <div style={{ width: 90, display: "flex", justifyContent: "flex-end" }}>
-        {!pos && (
-          <div style={{ width: `${pct}%`, height: 6, background: T.red, borderRadius: "3px 0 0 3px", minWidth: 2 }} />
-        )}
-      </div>
-      <div style={{ width: 2, height: 14, background: T.border }} />
-      <div style={{ width: 90 }}>
-        {pos && (
-          <div style={{ width: `${pct}%`, height: 6, background: T.green, borderRadius: "0 3px 3px 0", minWidth: 2 }} />
-        )}
-      </div>
-      <span style={{ color: pos ? T.green : T.red, minWidth: 60, textAlign: "right" }}>
-        {pos ? "+" : ""}{fmt.dollars(value)}
-      </span>
+    <div style={{ display:'flex', gap:4, marginBottom:20, flexWrap:'wrap' }}>
+      {VIEWS.map(v => (
+        <button key={v} onClick={() => onChange(v)} style={{
+          padding:'5px 14px', borderRadius:4, border:'none', cursor:'pointer',
+          fontFamily:'DM Mono, monospace', fontSize:11, letterSpacing:'0.08em',
+          background: active===v ? '#3b82f6' : '#1e293b',
+          color: active===v ? '#fff' : '#64748b', transition:'all 0.15s',
+        }}>{v}</button>
+      ))}
     </div>
-  );
+  )
 }
 
-// ── WAR sparkline ────────────────────────────────────────────────────────────
-function WarSparkline({ data }) {
-  if (!data || Object.keys(data).length === 0) return null;
-  const entries = Object.entries(data).sort((a, b) => a[0] - b[0]);
-  const vals = entries.map(([, v]) => v);
-  const max = Math.max(...vals.map(Math.abs), 1);
-  return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 28 }}>
-      {entries.map(([yr, v]) => {
-        const h = Math.max(Math.abs(v) / max * 24, 2);
-        const col = v >= 4 ? T.accent : v >= 2 ? T.blue : v >= 0 ? T.textLow : T.red;
-        return (
-          <div key={yr} title={`${yr}: ${v} WAR`} style={{ position: "relative" }}>
-            <div style={{
-              width: 6, height: h, background: col,
-              borderRadius: 2, marginBottom: v < 0 ? 0 : undefined,
-            }} />
-          </div>
-        );
-      })}
-    </div>
-  );
+const TH = { padding:'8px 12px', textAlign:'left', fontSize:10,
+             fontFamily:'DM Mono, monospace', letterSpacing:'0.08em',
+             color:'#64748b', borderBottom:'1px solid #1e293b',
+             whiteSpace:'nowrap', cursor:'pointer', userSelect:'none' }
+const TD = { padding:'7px 12px', fontSize:12, borderBottom:'1px solid #0f172a', whiteSpace:'nowrap' }
+const tableStyle = { width:'100%', borderCollapse:'collapse', background:'#0f172a',
+                     borderRadius:8, overflow:'hidden', fontSize:12 }
+const inp = { padding:'4px 10px', borderRadius:4, border:'1px solid #1e293b',
+              background:'#0f172a', color:'#e2e8f0', fontSize:12 }
+
+function SortTH({ label, field, sort, onSort }) {
+  const active = sort.field === field
+  return <th style={{ ...TH, color: active ? '#3b82f6' : '#64748b' }}
+             onClick={() => onSort(field)}>
+    {label}{active ? (sort.dir==='desc' ? ' ↓' : ' ↑') : ''}
+  </th>
 }
 
-// ── Expandable contract row ──────────────────────────────────────────────────
-function ContractRow({ c, maxSurplus, idx }) {
-  const [open, setOpen] = useState(false);
-  const isActive = c.contract_status !== "complete";
-  const surplus = c.realized_surplus;
-  const posColor = {SP:T.accent, RP:T.blue, C:"#fb923c", "1B":"#34d399",
-    "2B":"#34d399", "3B":"#34d399", SS:"#34d399", OF:"#facc15", DH:T.textMid};
-
-  return (
-    <>
-      <tr
-        onClick={() => setOpen(!open)}
-        style={{
-          background: idx % 2 === 0 ? T.bgCard : T.bg,
-          cursor: "pointer",
-          transition: "background 0.15s",
-          borderBottom: open ? "none" : `1px solid ${T.border}`,
-        }}
-        onMouseEnter={e => e.currentTarget.style.background = "#1a1535"}
-        onMouseLeave={e => e.currentTarget.style.background = idx % 2 === 0 ? T.bgCard : T.bg}
-      >
-        <td style={td}>{idx + 1}</td>
-        <td style={{ ...td, fontFamily: "Bebas Neue, sans-serif", fontSize: 15, letterSpacing: "0.04em", color: T.textHi }}>
-          {c.name}{c.has_deferral ? <span style={{ color: T.gold, fontSize: 11, marginLeft: 2 }} title="CBT-adjusted AAV — see footnote">*</span> : null}
-          {isActive && <span style={{ marginLeft: 6, fontSize: 9, background: T.accentMid, color: "#fff", padding: "1px 5px", borderRadius: 3, letterSpacing: "0.08em" }}>ACTIVE</span>}
-        </td>
-        <td style={{ ...td, color: T.textLow }}>{c.signing_class}</td>
-        <td style={{ ...td, color: T.textMid, fontFamily: "DM Mono, monospace" }}>{abbr(c.new_team)}</td>
-        <td style={td}>
-          <span style={{ background: (posColor[c.position_group] || T.textLow) + "22", color: posColor[c.position_group] || T.textLow, padding: "2px 7px", borderRadius: 4, fontSize: 11, fontFamily: "DM Mono, monospace", fontWeight: 600 }}>
-            {c.position_group}
-          </span>
-        </td>
-        <td style={{ ...td, color: T.textMid, fontFamily: "DM Mono, monospace" }}>{c.age_at_signing}</td>
-        <td style={{ ...td, fontFamily: "DM Mono, monospace", color: T.textMid }}>{c.years}yr / {fmt.dollars(c.aav)}</td>
-        <td style={{ ...td, fontFamily: "DM Mono, monospace", color: T.textLow }}>{fmt.dollars(c.guarantee)}</td>
-        <td style={{ ...td, fontFamily: "DM Mono, monospace", color: c.total_realized_war >= 3 ? T.accent : T.textMid }}>
-          {fmt.war(c.total_realized_war)}
-        </td>
-        <td style={td}>
-          <SurplusBar value={surplus} max={maxSurplus} />
-        </td>
-        <td style={{ ...td, fontFamily: "DM Mono, monospace", color: T.textLow, fontSize: 11 }} title="AAV ÷ CBT threshold at signing year">
-          {fmt.pct(c.pct_of_cbt)}
-        </td>
-      </tr>
-      {open && (
-        <tr style={{ background: "#0f0c20", borderBottom: `1px solid ${T.border}` }}>
-          <td colSpan={11} style={{ padding: "12px 20px 16px" }}>
-            <div style={{ display: "flex", gap: 32, flexWrap: "wrap", alignItems: "flex-start" }}>
-              <div>
-                <div style={{ color: T.textLow, fontSize: 10, letterSpacing: "0.1em", fontFamily: "DM Mono, monospace", marginBottom: 6 }}>WAR BY SEASON</div>
-                <WarSparkline data={c.war_by_season} />
-                {c.war_by_season && (
-                  <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                    {Object.entries(c.war_by_season).sort((a,b)=>a[0]-b[0]).map(([yr, v]) => (
-                      <div key={yr} style={{ textAlign: "center" }}>
-                        <div style={{ fontFamily: "DM Mono, monospace", fontSize: 9, color: T.textLow }}>{yr}</div>
-                        <div style={{ fontFamily: "DM Mono, monospace", fontSize: 11, color: v >= 3 ? T.accent : v >= 0 ? T.textMid : T.red }}>{v}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
-                {[
-                  ["Guarantee", fmt.dollars(c.guarantee)],
-                  ["AAV", fmt.dollars(c.aav)],
-                  ...(c.has_deferral ? [["CBT AAV*", fmt.dollars(c.cbt_aav)]] : []),
-                  ["% of CBT", fmt.pct(c.pct_of_cbt)],
-                  ["% of Payroll", fmt.pct(c.pct_of_payroll)],
-                  ["Baseline WAR", fmt.war(c.baseline_war)],
-                  ["Expected WAR", fmt.war(c.expected_war_total)],
-                  ["Market Rate", fmt.rate(c.market_rate_at_signing)],
-                  ["Realized Surplus", fmt.dollars(c.realized_surplus)],
-                  ["Expected Surplus", fmt.dollars(c.expected_surplus)],
-                ].map(([label, val]) => (
-                  <div key={label}>
-                    <div style={{ color: T.textLow, fontSize: 9, letterSpacing: "0.1em", fontFamily: "DM Mono, monospace" }}>{label.toUpperCase()}</div>
-                    <div style={{ color: T.textHi, fontFamily: "DM Mono, monospace", fontSize: 13, marginTop: 2 }}>{val}</div>
-                  </div>
-                ))}
-              </div>
-              {isActive && (
-                <div style={{ background: T.gold + "18", border: `1px solid ${T.gold}44`, borderRadius: 6, padding: "6px 12px", fontSize: 11, color: T.gold, fontFamily: "DM Mono, monospace", maxWidth: 280 }}>
-                  ⚠ Active contract — surplus reflects seasons played to date only
-                </div>
-              )}
-            </div>
-          </td>
-        </tr>
-      )}
-    </>
-  );
-}
-
-const td = { padding: "10px 12px", fontSize: 13, color: T.textMid, whiteSpace: "nowrap" };
-const th = { padding: "8px 12px", fontSize: 10, letterSpacing: "0.1em", color: T.textLow, fontFamily: "DM Mono, monospace", textAlign: "left", borderBottom: `1px solid ${T.border}`, userSelect: "none" };
-
-// ── LEADERBOARD VIEW ─────────────────────────────────────────────────────────
+// ── LEADERBOARD ───────────────────────────────────────────────────────────────
 function LeaderboardView() {
-  const [contracts, setContracts]   = useState([]);
-  const [loading, setLoading]       = useState(false);
-  const [pos, setPos]               = useState("ALL");
-  const [status, setStatus]         = useState("complete");
-  const [sortBy, setSortBy]         = useState("realized_surplus");
-  const [order, setOrder]           = useState("desc");
-  const [minYears, setMinYears]     = useState(2);
-  const [eraStart, setEraStart]     = useState("");
-  const [eraEnd, setEraEnd]         = useState("");
+  const [data,    setData]    = useState([])
+  const [loading, setLoading] = useState(false)
+  const [expanded,setExpanded]= useState(null)
+  const [sort,    setSort]    = useState({ field:'realized_surplus', dir:'desc' })
+  const [filters, setFilters] = useState({
+    position_group:'', status:'', team:'', contract_type:'',
+    era_start:'', era_end:'', min_years:'1', limit:'200'
+  })
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({
-        sort_by: sortBy, order, min_years: minYears, limit: 100,
-        ...(pos !== "ALL" && { position_group: pos }),
-        ...(status !== "ALL" && { status }),
-        ...(eraStart && { era_start: eraStart }),
-        ...(eraEnd && { era_end: eraEnd }),
-      });
-      const res = await fetch(`${API}/economics/leaderboard?${params}`);
-      setContracts(await res.json());
-    } catch { setContracts([]); }
-    setLoading(false);
-  }, [pos, status, sortBy, order, minYears, eraStart, eraEnd]);
+  const load = useCallback(() => {
+    setLoading(true)
+    const p = new URLSearchParams()
+    Object.entries(filters).forEach(([k,v]) => v && p.set(k,v))
+    p.set('sort_by', sort.field); p.set('order', sort.dir)
+    fetch(`${API}/economics/leaderboard?${p}`)
+      .then(r => r.json()).then(setData).finally(() => setLoading(false))
+  }, [filters, sort])
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load() }, [load])
 
-  const maxSurplus = Math.max(...contracts.map(c => Math.abs(c.realized_surplus || 0)), 1);
-
-  const sortOptions = [
-    { val: "realized_surplus", label: "Surplus" },
-    { val: "aav", label: "AAV" },
-    { val: "total_realized_war", label: "WAR" },
-    { val: "pct_of_cbt", label: "% of CBT" },
-  ];
+  const onSort = f => setSort(s => ({ field:f, dir:s.field===f&&s.dir==='desc'?'asc':'desc' }))
+  const F = (k,v) => setFilters(f => ({...f,[k]:v}))
+  const sel = { ...inp, cursor:'pointer' }
 
   return (
     <div>
-      {/* Filters */}
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 16, padding: "12px 16px", background: T.bgCard, borderRadius: 8, border: `1px solid ${T.border}` }}>
-        {/* Position */}
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-          {POSITIONS.map(p => (
-            <button key={p} onClick={() => setPos(p)} style={{
-              padding: "4px 10px", borderRadius: 4, fontSize: 11, fontFamily: "DM Mono, monospace",
-              cursor: "pointer", border: pos === p ? `1px solid ${T.accent}` : `1px solid ${T.border}`,
-              background: pos === p ? T.accent + "22" : "transparent",
-              color: pos === p ? T.accent : T.textLow, transition: "all 0.15s",
-            }}>{p}</button>
-          ))}
-        </div>
-        <div style={{ width: 1, height: 24, background: T.border }} />
-        {/* Status */}
-        {["ALL","complete","active"].map(s => (
-          <button key={s} onClick={() => setStatus(s)} style={{
-            padding: "4px 10px", borderRadius: 4, fontSize: 11, fontFamily: "DM Mono, monospace",
-            cursor: "pointer", border: status === s ? `1px solid ${T.gold}` : `1px solid ${T.border}`,
-            background: status === s ? T.gold + "22" : "transparent",
-            color: status === s ? T.gold : T.textLow,
-          }}>{s.toUpperCase()}</button>
-        ))}
-        <div style={{ width: 1, height: 24, background: T.border }} />
-        {/* Sort */}
-        <div style={{ display: "flex", gap: 4 }}>
-          {sortOptions.map(o => (
-            <button key={o.val} onClick={() => setSortBy(o.val)} style={{
-              padding: "4px 10px", borderRadius: 4, fontSize: 11, fontFamily: "DM Mono, monospace",
-              cursor: "pointer", border: sortBy === o.val ? `1px solid ${T.blue}` : `1px solid ${T.border}`,
-              background: sortBy === o.val ? T.blue + "22" : "transparent",
-              color: sortBy === o.val ? T.blue : T.textLow,
-            }}>{o.label}</button>
-          ))}
-        </div>
-        <button onClick={() => setOrder(o => o === "desc" ? "asc" : "desc")} style={{
-          padding: "4px 10px", borderRadius: 4, fontSize: 11, fontFamily: "DM Mono, monospace",
-          cursor: "pointer", border: `1px solid ${T.border}`, background: "transparent", color: T.textMid,
-        }}>{order === "desc" ? "▼ Best first" : "▲ Worst first"}</button>
-        {/* Era */}
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <span style={{ fontSize: 10, color: T.textLow, fontFamily: "DM Mono, monospace" }}>ERA</span>
-          <input type="number" placeholder="1991" value={eraStart}
-            onChange={e => setEraStart(e.target.value)}
-            style={{ width: 54, background: T.bg, border: `1px solid ${T.border}`, color: T.textMid, borderRadius: 4, padding: "3px 6px", fontSize: 11, fontFamily: "DM Mono, monospace" }} />
-          <span style={{ color: T.textLow }}>–</span>
-          <input type="number" placeholder="2026" value={eraEnd}
-            onChange={e => setEraEnd(e.target.value)}
-            style={{ width: 54, background: T.bg, border: `1px solid ${T.border}`, color: T.textMid, borderRadius: 4, padding: "3px 6px", fontSize: 11, fontFamily: "DM Mono, monospace" }} />
-        </div>
-        {/* Min years */}
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <span style={{ fontSize: 10, color: T.textLow, fontFamily: "DM Mono, monospace" }}>MIN YRS</span>
-          <select value={minYears} onChange={e => setMinYears(Number(e.target.value))}
-            style={{ background: T.bg, border: `1px solid ${T.border}`, color: T.textMid, borderRadius: 4, padding: "3px 6px", fontSize: 11, fontFamily: "DM Mono, monospace" }}>
-            {[1,2,3,4,5].map(n => <option key={n} value={n}>{n}+</option>)}
-          </select>
-        </div>
+      <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:16, alignItems:'center' }}>
+        <select style={sel} value={filters.position_group} onChange={e=>F('position_group',e.target.value)}>
+          {['','SP','RP','C','1B','2B','3B','SS','OF','DH'].map(o=><option key={o} value={o}>{o||'All positions'}</option>)}
+        </select>
+        <select style={sel} value={filters.status} onChange={e=>F('status',e.target.value)}>
+          {['','complete','active','future'].map(o=><option key={o} value={o}>{o||'All statuses'}</option>)}
+        </select>
+        <select style={sel} value={filters.contract_type} onChange={e=>F('contract_type',e.target.value)}>
+          {['','fa','extension','international'].map(o=><option key={o} value={o}>{o||'All types'}</option>)}
+        </select>
+        <input placeholder="Team" style={{...inp,width:80}} value={filters.team}
+               onChange={e=>F('team',e.target.value.toUpperCase())} />
+        <input placeholder="From" type="number" style={{...inp,width:90}} value={filters.era_start}
+               onChange={e=>F('era_start',e.target.value)} />
+        <input placeholder="To" type="number" style={{...inp,width:90}} value={filters.era_end}
+               onChange={e=>F('era_end',e.target.value)} />
+        <select style={sel} value={filters.min_years} onChange={e=>F('min_years',e.target.value)}>
+          {[1,2,3,4,5].map(n=><option key={n} value={n}>≥{n}yr</option>)}
+        </select>
+        <select style={sel} value={filters.limit} onChange={e=>F('limit',e.target.value)}>
+          {[50,100,200,500].map(n=><option key={n} value={n}>Top {n}</option>)}
+        </select>
       </div>
 
-      {loading ? (
-        <div style={{ textAlign: "center", padding: 48, color: T.textLow, fontFamily: "DM Mono, monospace", letterSpacing: "0.1em" }}>LOADING…</div>
-      ) : (
-        <div style={{ overflowX: "auto", borderRadius: 8, border: `1px solid ${T.border}` }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ background: T.bgDeep }}>
-                <th style={th}>#</th>
-                <th style={th}>PLAYER</th>
-                <th style={th}>CLASS</th>
-                <th style={th}>TEAM</th>
-                <th style={th}>POS</th>
-                <th style={th}>AGE</th>
-                <th style={th}>CONTRACT</th>
-                <th style={th}>LTV</th>
-                <th style={th}>WAR</th>
-                <th style={{ ...th, minWidth: 260 }}>SURPLUS</th>
-                <th style={th} title="AAV ÷ CBT threshold at signing year">CBT AAV%</th>
-              </tr>
-            </thead>
-            <tbody>
-              {contracts.map((c, i) => (
-                <ContractRow key={`${c.name}-${c.signing_class}-${c.new_team}`} c={c} maxSurplus={maxSurplus} idx={i} />
-              ))}
-              {contracts.length === 0 && (
-                <tr><td colSpan={11} style={{ padding: 32, textAlign: "center", color: T.textLow, fontFamily: "DM Mono, monospace" }}>NO CONTRACTS FOUND</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
-      <div style={{ marginTop: 8, fontSize: 11, color: T.textLow, fontFamily: "DM Mono, monospace" }}>
-        {contracts.length} contracts · Click any row to expand · Surplus = (WAR × $/WAR at signing) − salary paid
+      {loading && <div style={{color:'#64748b',fontFamily:'DM Mono',fontSize:12}}>Loading...</div>}
+
+      <div style={{overflowX:'auto'}}>
+        <table style={tableStyle}>
+          <thead><tr>
+            <th style={TH}>#</th><th style={TH}>PLAYER</th><th style={TH}>TYPE</th>
+            {[['YR','signing_class'],['TEAM','new_team'],['POS','position_group'],
+              ['YRS','years'],['AAV','aav'],['rWAR','total_realized_war'],
+              ['SURPLUS','realized_surplus']].map(([l,f])=>(
+              <SortTH key={f} label={l} field={f} sort={sort} onSort={onSort} />
+            ))}
+          </tr></thead>
+          <tbody>
+            {data.map((c,i) => {
+              const open = expanded===i
+              return (
+                <React.Fragment key={i}>
+                  <tr onClick={()=>setExpanded(open?null:i)}
+                      style={{cursor:'pointer',background:open?'#1e293b':'transparent'}}>
+                    <td style={{...TD,color:'#64748b',width:36}}>{i+1}</td>
+                    <td style={{...TD,fontFamily:'Bebas Neue, sans-serif',fontSize:15,
+                                letterSpacing:'0.04em',color:'#e2e8f0'}}>
+                      {c.name}{c.has_deferral?<Deferred/>:null}
+                    </td>
+                    <td style={TD}><Badge type={c.contract_type}/></td>
+                    <td style={{...TD,color:'#64748b'}}>{c.signing_class}</td>
+                    <td style={{...TD,color:'#64748b'}}>{c.new_team}</td>
+                    <td style={{...TD,color:'#64748b'}}>{c.position_group}</td>
+                    <td style={{...TD,color:'#64748b'}}>{c.years}</td>
+                    <td style={TD}>{fmt.dollars(c.aav)}</td>
+                    <td style={TD}>{fmt.war(c.total_realized_war)}</td>
+                    <td style={{...TD,color:SURPLUS_COLOR(c.realized_surplus),fontWeight:600}}>
+                      {fmt.surplus(c.realized_surplus)}
+                    </td>
+                  </tr>
+                  {open && (
+                    <tr><td colSpan={10} style={{padding:'12px 24px',background:'#020617',
+                                                  borderBottom:'1px solid #1e293b'}}>
+                      <div style={{display:'flex',gap:28,flexWrap:'wrap',fontSize:12}}>
+                        {[['Contract', c.years?`${c.years}yr / ${fmt.dollars(c.guarantee)}`:'—'],
+                          ['AAV', fmt.dollars(c.aav)],
+                          ...(c.has_deferral?[['CBT AAV*', fmt.dollars(c.cbt_aav)]]:[] ),
+                          ['Age at signing', c.age_at_signing??'—'],
+                          ['Term', c.term_start?`${c.term_start}–${c.term_end}`:'—'],
+                          ['Status', c.contract_status??'—'],
+                          ['rWAR', fmt.war(c.total_realized_war)],
+                          ['$/WAR at signing', fmt.dollars(c.market_rate_at_signing)],
+                          ['Market value', fmt.dollars(c.realized_market_value)],
+                          ['Realized surplus', fmt.surplus(c.realized_surplus)],
+                          ['Expected surplus', fmt.surplus(c.expected_surplus)],
+                          ...(c.pre_arb_years!=null?[
+                            ['Pre-arb yrs', c.pre_arb_years??'—'],
+                            ['Arb yrs', c.arb_years??'—'],
+                            ['FA yrs', c.fa_years??'—'],
+                          ]:[]),
+                        ].map(([k,v])=>(
+                          <div key={k}>
+                            <div style={{color:'#64748b',fontSize:10,fontFamily:'DM Mono',marginBottom:2}}>{k}</div>
+                            <div style={{color:'#e2e8f0'}}>{v}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {c.has_deferral && (
+                        <div style={{marginTop:8,fontSize:10,color:'#64748b',fontFamily:'DM Mono',
+                                     padding:'5px 8px',background:'#0f172a',borderRadius:4,
+                                     borderLeft:'2px solid #f59e0b'}}>
+                          * CBT-ADJUSTED AAV — deferred salary discounted to present value per CBA Art. XXIII §E(6)
+                        </div>
+                      )}
+                    </td></tr>
+                  )}
+                </React.Fragment>
+              )
+            })}
+          </tbody>
+        </table>
       </div>
-      <div style={{ marginTop: 6, fontSize: 10, color: T.textLow, fontFamily: "DM Mono, monospace", lineHeight: 1.6, maxWidth: 700, padding: "8px 12px", background: T.bgCard, borderRadius: 6, border:  }}>
-        <span style={{ color: T.gold }}>* CBT-ADJUSTED AAV</span> — For contracts with deferred salary, AAV reflects the present value of total compensation per CBA Art. XXIII §E(6). Deferred amounts are discounted at the IRS mid-term AFR for the signing year; payments assumed in equal annual installments over the stated deferral window. Actual CBT AAV may vary slightly from the official MLBPA calculation based on exact payment schedules and interest compounding. Source: Spotrac (Apr 2026).
+      <div style={{marginTop:8,fontSize:11,color:'#64748b',fontFamily:'DM Mono'}}>
+        {data.length} contracts · Click row to expand · Surplus = (rWAR × $/WAR at signing) − salary paid
       </div>
     </div>
-  );
+  )
 }
 
-// ── MARKET RATE VIEW ─────────────────────────────────────────────────────────
+// ── MARKET RATE ───────────────────────────────────────────────────────────────
 function MarketRateView() {
-  const [rates, setRates] = useState([]);
-
-  useEffect(() => {
-    fetch(`${API}/economics/market-rates`)
-      .then(r => r.json())
-      .then(setRates)
-      .catch(() => setRates([]));
-  }, []);
-
-  if (!rates.length) return (
-    <div style={{ textAlign: "center", padding: 48, color: T.textLow, fontFamily: "DM Mono, monospace" }}>LOADING…</div>
-  );
-
-  const labels = rates.map(r => r.season);
-  const values = rates.map(r => r.dollars_per_war / 1e6);
-  const latestRate = rates[rates.length - 1];
-  const firstRate  = rates[0];
-  const peakRate   = rates.reduce((a, b) => a.dollars_per_war > b.dollars_per_war ? a : b);
-  const inflation  = ((latestRate.dollars_per_war - firstRate.dollars_per_war) / firstRate.dollars_per_war * 100).toFixed(0);
-
-  const chartData = {
-    labels,
-    datasets: [{
-      label: "$/WAR",
-      data: values,
-      borderColor: T.accent,
-      backgroundColor: T.accent + "18",
-      pointBackgroundColor: T.accent,
-      pointRadius: 3,
-      pointHoverRadius: 6,
-      fill: true,
-      tension: 0.3,
-      borderWidth: 2,
-    }],
-  };
-
-  const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        backgroundColor: T.bgCard,
-        borderColor: T.border,
-        borderWidth: 1,
-        titleColor: T.accent,
-        bodyColor: T.textMid,
-        callbacks: {
-          title: ([item]) => `${item.label} FA Class`,
-          label: (item) => ` $${item.raw.toFixed(2)}M per WAR`,
-        },
-      },
-    },
-    scales: {
-      x: { ticks: { color: T.textLow, font: { family: "DM Mono, monospace", size: 10 } }, grid: { color: T.border + "66" } },
-      y: {
-        ticks: { color: T.textLow, font: { family: "DM Mono, monospace", size: 10 }, callback: v => `$${v.toFixed(1)}M` },
-        grid: { color: T.border + "66" },
-      },
-    },
-  };
-
-  const statCard = (label, value, sub) => (
-    <div style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: 8, padding: "16px 20px", minWidth: 140 }}>
-      <div style={{ fontSize: 10, color: T.textLow, fontFamily: "DM Mono, monospace", letterSpacing: "0.1em", marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 22, fontFamily: "Bebas Neue, sans-serif", color: T.accent, letterSpacing: "0.04em" }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: T.textLow, fontFamily: "DM Mono, monospace", marginTop: 4 }}>{sub}</div>}
-    </div>
-  );
-
+  const [data, setData] = useState([])
+  useEffect(()=>{ fetch(`${API}/economics/market-rates`).then(r=>r.json()).then(setData) },[])
+  const max = Math.max(...data.map(d=>d.dollars_per_war||0))
   return (
     <div>
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24 }}>
-        {statCard("2024 MARKET RATE", fmt.rate(latestRate.dollars_per_war), `${latestRate.sample_size} contracts`)}
-        {statCard("PEAK RATE", fmt.rate(peakRate.dollars_per_war), `${peakRate.season} FA class`)}
-        {statCard("INFLATION 1991→NOW", `+${inflation}%`, "nominal $/WAR growth")}
-        {statCard("1991 BASELINE", fmt.rate(firstRate.dollars_per_war), `${firstRate.sample_size} contracts`)}
+      <div style={{marginBottom:16,color:'#64748b',fontSize:13}}>
+        Implied $/WAR per FA signing class · pool-level ratio ·
+        FA + international contracts only · completed contracts only
       </div>
-      <div style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: 8, padding: 20, height: 340 }}>
-        <Line data={chartData} options={chartOptions} />
-      </div>
-      <div style={{ marginTop: 16, padding: "12px 16px", background: T.bgCard, borderRadius: 8, border: `1px solid ${T.border}`, fontSize: 12, color: T.textMid, fontFamily: "DM Mono, monospace", lineHeight: 1.7 }}>
-        <span style={{ color: T.accent }}>HOW TO READ THIS</span> · Each point is the implied market price of one WAR
-        for that free agent class, derived from completed contracts with ≥0.5 WAR/season.
-        Spikes in <span style={{ color: T.gold }}>2016</span> and <span style={{ color: T.gold }}>2022</span> correspond
-        to new CBAs where thresholds and spending expectations reset upward.
-        Use this to contextualize any contract — a $10M AAV deal in 1998 was equivalent
-        to ~{fmt.rate(10e6 / (rates.find(r=>r.season===1998)?.dollars_per_war||4e6))} WAR/yr expected.
+      <div style={{overflowX:'auto'}}>
+        <table style={tableStyle}>
+          <thead><tr>
+            {['YEAR','$/WAR','SAMPLE','MATCH %','TREND'].map(h=><th key={h} style={TH}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {data.map((r,i)=>{
+              const pct = max>0?(r.dollars_per_war/max)*100:0
+              const prev = data[i-1]?.dollars_per_war
+              const delta = prev?((r.dollars_per_war-prev)/prev*100):null
+              return (
+                <tr key={r.season}>
+                  <td style={{...TD,fontFamily:'DM Mono',color:'#e2e8f0'}}>{r.season}</td>
+                  <td style={{...TD,fontWeight:600,color:'#3b82f6'}}>{fmt.dollars(r.dollars_per_war)}</td>
+                  <td style={{...TD,color:'#64748b'}}>{r.sample_size}</td>
+                  <td style={{...TD,color:'#64748b'}}>{fmt.pct(r.match_rate)}</td>
+                  <td style={{...TD,minWidth:160}}>
+                    <div style={{display:'flex',alignItems:'center',gap:8}}>
+                      <div style={{height:8,width:`${pct}%`,maxWidth:120,background:'#3b82f6',
+                                   borderRadius:2,minWidth:2}}/>
+                      {delta!=null && <span style={{fontSize:10,fontFamily:'DM Mono',
+                        color:delta>=0?'#22c55e':'#ef4444'}}>
+                        {delta>=0?'+':''}{delta.toFixed(1)}%
+                      </span>}
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
-  );
+  )
 }
 
-// ── TEAM VIEW ────────────────────────────────────────────────────────────────
-const TEAMS_LIST = [
-  ["NYA","Yankees"],["LAN","Dodgers"],["BOS","Red Sox"],["NYN","Mets"],["CHN","Cubs"],
-  ["SFN","Giants"],["PHI","Phillies"],["HOU","Astros"],["ATL","Braves"],["SLN","Cardinals"],
-  ["MIN","Twins"],["SEA","Mariners"],["TEX","Rangers"],["SDN","Padres"],["ARI","D-backs"],
-  ["TOR","Blue Jays"],["CLE","Guardians"],["DET","Tigers"],["MIL","Brewers"],["TBA","Rays"],
-  ["BAL","Orioles"],["KCA","Royals"],["CIN","Reds"],["PIT","Pirates"],["COL","Rockies"],
-  ["ATH","Athletics"],["ANA","Angels"],["MIA","Marlins"],["WAS","Nationals"],["CHA","White Sox"],
-];
+// ── BY TEAM ───────────────────────────────────────────────────────────────────
+function ByTeamView() {
+  const [team,setTeam]=useState('LAN')
+  const [era0,setEra0]=useState('')
+  const [era1,setEra1]=useState('')
+  const [sort,setSort]=useState({field:'signing_class',dir:'desc'})
+  const [data,setData]=useState(null)
+  const [loading,setLoading]=useState(false)
 
-function TeamView() {
-  const [team, setTeam]     = useState("LAN");
-  const [data, setData]     = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [sortBy, setSortBy] = useState("signing_class");
-  const [order, setOrder]   = useState("desc");
+  const load = useCallback(()=>{
+    if(!team) return
+    setLoading(true)
+    const p = new URLSearchParams({team,sort_by:sort.field,order:sort.dir})
+    if(era0) p.set('era_start',era0); if(era1) p.set('era_end',era1)
+    fetch(`${API}/economics/team?${p}`).then(r=>r.json()).then(setData)
+      .finally(()=>setLoading(false))
+  },[team,era0,era1,sort])
 
-  const load = useCallback(async (t, sb, ord) => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${API}/economics/team?team=${t}&sort_by=${sb}&order=${ord}`);
-      setData(await res.json());
-    } catch { setData(null); }
-    setLoading(false);
-  }, []);
+  useEffect(()=>{load()},[load])
+  const onSort = f => setSort(s=>({field:f,dir:s.field===f&&s.dir==='desc'?'asc':'desc'}))
 
-  useEffect(() => { load(team, sortBy, order); }, [team, sortBy, order, load]);
-
-  const s = data?.summary;
-  const surplusColor = s?.total_surplus >= 0 ? T.green : T.red;
+  const TEAMS = ['LAN','NYA','BOS','CHN','SFN','ATL','HOU','NYN','PHI','SLN',
+                 'TEX','TOR','CLE','MIN','MIL','ARI','SDN','SEA','ATH',
+                 'MIA','CIN','PIT','COL','KCA','DET','BAL','TBA','CHA','ANA','WAS']
 
   return (
     <div>
-      {/* Team selector */}
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 20 }}>
-        {TEAMS_LIST.map(([code, name]) => (
-          <button key={code} onClick={() => setTeam(code)} style={{
-            padding: "5px 11px", borderRadius: 4, fontSize: 11, fontFamily: "DM Mono, monospace",
-            cursor: "pointer", transition: "all 0.15s",
-            border: team === code ? `1px solid ${T.accent}` : `1px solid ${T.border}`,
-            background: team === code ? T.accent + "22" : "transparent",
-            color: team === code ? T.accent : T.textLow,
-          }} title={name}>{abbr(code)}</button>
-        ))}
+      <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap',alignItems:'center'}}>
+        <select style={{...inp,cursor:'pointer'}} value={team} onChange={e=>setTeam(e.target.value)}>
+          {TEAMS.map(t=><option key={t} value={t}>{t}</option>)}
+        </select>
+        <input placeholder="From" type="number" style={{...inp,width:90}} value={era0} onChange={e=>setEra0(e.target.value)}/>
+        <input placeholder="To"   type="number" style={{...inp,width:90}} value={era1} onChange={e=>setEra1(e.target.value)}/>
       </div>
 
-      {/* Sort controls */}
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 10, color: T.textLow, fontFamily: "DM Mono, monospace", letterSpacing: "0.1em" }}>SORT</span>
-        {[
-          { val: "signing_class",   label: "Year" },
-          { val: "realized_surplus",label: "Surplus" },
-          { val: "aav",             label: "AAV" },
-          { val: "total_realized_war", label: "WAR" },
-        ].map(o => (
-          <button key={o.val} onClick={() => setSortBy(o.val)} style={{
-            padding: "4px 10px", borderRadius: 4, fontSize: 11, fontFamily: "DM Mono, monospace",
-            cursor: "pointer", border: sortBy === o.val ? `1px solid ${T.blue}` : `1px solid ${T.border}`,
-            background: sortBy === o.val ? T.blue + "22" : "transparent",
-            color: sortBy === o.val ? T.blue : T.textLow,
-          }}>{o.label}</button>
-        ))}
-        <button onClick={() => setOrder(o => o === "desc" ? "asc" : "desc")} style={{
-          padding: "4px 10px", borderRadius: 4, fontSize: 11, fontFamily: "DM Mono, monospace",
-          cursor: "pointer", border: `1px solid ${T.border}`, background: "transparent", color: T.textMid,
-        }}>{order === "desc" ? "▼ High first" : "▲ Low first"}</button>
-      </div>
-
-      {loading && <div style={{ textAlign: "center", padding: 48, color: T.textLow, fontFamily: "DM Mono, monospace" }}>LOADING…</div>}
-
-      {data && !loading && (
+      {data && (
         <>
-          {/* Summary cards */}
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
-            {[
-              ["TOTAL SPENT", fmt.dollars(s.total_spent), "in FA guarantees"],
-              ["TOTAL SURPLUS", fmt.dollars(s.total_surplus), s.total_surplus >= 0 ? "net team win" : "net overpay"],
-              ["WIN RATE", `${s.win_rate}%`, `${s.wins}W ${s.losses}L (completed)`],
-              ["BEST SIGNING", s.best_contract, "by realized surplus"],
-              ["WORST SIGNING", s.worst_contract, "by realized surplus"],
-            ].map(([label, val, sub]) => (
-              <div key={label} style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: 8, padding: "14px 18px", minWidth: 140, flex: 1 }}>
-                <div style={{ fontSize: 10, color: T.textLow, fontFamily: "DM Mono, monospace", letterSpacing: "0.1em", marginBottom: 4 }}>{label}</div>
-                <div style={{
-                  fontSize: label.includes("SPENDING") || label.includes("SURPLUS") ? 20 : 15,
-                  fontFamily: "Bebas Neue, sans-serif",
-                  color: label === "TOTAL SURPLUS" ? surplusColor : label === "WIN RATE" ? T.gold : T.textHi,
-                  letterSpacing: "0.04em", lineHeight: 1.2,
-                }}>{val}</div>
-                <div style={{ fontSize: 11, color: T.textLow, fontFamily: "DM Mono, monospace", marginTop: 3 }}>{sub}</div>
+          <div style={{display:'flex',gap:12,flexWrap:'wrap',marginBottom:20}}>
+            {[['CONTRACTS',data.total_contracts],['TOTAL SPENT',fmt.dollars(data.total_spent)],
+              ['TOTAL SURPLUS',fmt.surplus(data.total_surplus)],['TOTAL rWAR',fmt.war(data.total_war)],
+              ['WIN RATE',fmt.pct(data.win_rate)]].map(([l,v])=>(
+              <div key={l} style={{padding:'12px 20px',background:'#0f172a',borderRadius:8,
+                                   border:'1px solid #1e293b',minWidth:120}}>
+                <div style={{fontSize:10,fontFamily:'DM Mono',color:'#64748b',marginBottom:4}}>{l}</div>
+                <div style={{fontSize:20,fontFamily:'Bebas Neue, sans-serif',letterSpacing:'0.04em',
+                             color:l==='TOTAL SURPLUS'?SURPLUS_COLOR(data.total_surplus):'#e2e8f0'}}>{v}</div>
               </div>
             ))}
           </div>
-
-          {/* Payroll history mini */}
-          {data.payroll_history?.length > 0 && (
-            <div style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: 8, padding: "12px 16px", marginBottom: 16 }}>
-              <div style={{ fontSize: 10, color: T.textLow, fontFamily: "DM Mono, monospace", letterSpacing: "0.1em", marginBottom: 10 }}>OPENING DAY PAYROLL HISTORY</div>
-              <div style={{ display: "flex", gap: 3, alignItems: "flex-end", height: 40, overflowX: "auto" }}>
-                {[...data.payroll_history].reverse().map(p => {
-                  const maxP = Math.max(...data.payroll_history.map(x => x.opening_day_payroll || 0));
-                  const h = p.opening_day_payroll ? Math.max((p.opening_day_payroll / maxP) * 36, 3) : 3;
-                  return (
-                    <div key={p.season} title={`${p.season}: ${fmt.dollars(p.opening_day_payroll)}`}
-                      style={{ flex: "0 0 auto", display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                      <div style={{ width: 8, height: h, background: T.accentMid + "99", borderRadius: "2px 2px 0 0" }} />
-                      <div style={{ fontSize: 8, color: T.textLow, fontFamily: "DM Mono, monospace", writingMode: "vertical-rl", transform: "rotate(180deg)" }}>
-                        {p.season}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Contract list */}
-          <div style={{ overflowX: "auto", borderRadius: 8, border: `1px solid ${T.border}` }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr style={{ background: T.bgDeep }}>
-                  {["PLAYER","CLASS","POS","AGE","CONTRACT","LTV","WAR","SURPLUS","CBT AAV%","PAYROLL%"].map(h => (
-                    <th key={h} style={h === "CBT AAV%" ? {...th, cursor:"help"} : th} title={h === "CBT AAV%" ? "AAV ÷ CBT threshold at signing year" : undefined}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
+          <div style={{overflowX:'auto'}}>
+            <table style={tableStyle}>
+              <thead><tr>
+                {[['YR','signing_class'],['PLAYER',null],['TYPE',null],['POS','position_group'],
+                  ['YRS','years'],['AAV','aav'],['GUARANTEE','guarantee'],
+                  ['rWAR','total_realized_war'],['SURPLUS','realized_surplus']].map(([l,f])=>(
+                  f?<SortTH key={f} label={l} field={f} sort={sort} onSort={onSort}/>
+                   :<th key={l} style={TH}>{l}</th>
+                ))}
+              </tr></thead>
               <tbody>
-                {data.contracts.map((c, i) => {
-                  const isActive = c.contract_status !== "complete";
-                  const sp = c.realized_surplus;
-                  return (
-                    <tr key={`${c.name}-${c.signing_class}`}
-                      style={{ background: i % 2 === 0 ? T.bgCard : T.bg, borderBottom: `1px solid ${T.border}` }}>
-                      <td style={{ ...td, fontFamily: "Bebas Neue, sans-serif", fontSize: 14, color: T.textHi }}>
-                        {c.name}
-                        {isActive && <span style={{ marginLeft: 6, fontSize: 9, background: T.accentMid, color: "#fff", padding: "1px 5px", borderRadius: 3 }}>ACTIVE</span>}
-                      </td>
-                      <td style={{ ...td, color: T.textLow }}>{c.signing_class}</td>
-                      <td style={{ ...td, fontFamily: "DM Mono, monospace", fontSize: 11, color: T.textLow }}>{c.position_group}</td>
-                      <td style={{ ...td, fontFamily: "DM Mono, monospace", color: T.textLow }}>{c.age_at_signing}</td>
-                      <td style={{ ...td, fontFamily: "DM Mono, monospace", color: T.textMid }}>{c.years}yr / {fmt.dollars(c.aav)}</td>
-                      <td style={{ ...td, fontFamily: "DM Mono, monospace", color: T.textLow }}>{fmt.dollars(c.guarantee)}</td>
-                      <td style={{ ...td, fontFamily: "DM Mono, monospace", color: c.total_realized_war >= 3 ? T.accent : T.textMid }}>
-                        {fmt.war(c.total_realized_war)}
-                      </td>
-                      <td style={{ ...td, fontFamily: "DM Mono, monospace", color: sp == null ? T.textLow : sp >= 0 ? T.green : T.red }}>
-                        {sp == null ? "—" : `${sp >= 0 ? "+" : ""}${fmt.dollars(sp)}`}
-                      </td>
-                      <td style={{ ...td, fontFamily: "DM Mono, monospace", fontSize: 11, color: T.textLow }}>{fmt.pct(c.pct_of_cbt)}</td>
-                      <td style={{ ...td, fontFamily: "DM Mono, monospace", fontSize: 11, color: T.textLow }}>{fmt.pct(c.pct_of_payroll)}</td>
-                    </tr>
-                  );
-                })}
+                {data.contracts.map((c,i)=>(
+                  <tr key={i} style={{opacity:c.contract_status==='future'?0.6:1}}>
+                    <td style={{...TD,fontFamily:'DM Mono',color:'#64748b'}}>{c.signing_class}</td>
+                    <td style={{...TD,fontFamily:'Bebas Neue, sans-serif',fontSize:14,
+                                letterSpacing:'0.04em',color:'#e2e8f0'}}>
+                      {c.name}{c.has_deferral?<Deferred/>:null}
+                    </td>
+                    <td style={TD}><Badge type={c.contract_type}/></td>
+                    <td style={{...TD,color:'#64748b'}}>{c.position_group}</td>
+                    <td style={{...TD,color:'#64748b'}}>{c.years}</td>
+                    <td style={TD}>{fmt.dollars(c.aav)}</td>
+                    <td style={TD}>{fmt.dollars(c.guarantee)}</td>
+                    <td style={TD}>{fmt.war(c.total_realized_war)}</td>
+                    <td style={{...TD,color:SURPLUS_COLOR(c.realized_surplus),fontWeight:600}}>
+                      {fmt.surplus(c.realized_surplus)}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
         </>
       )}
+      {loading && <div style={{color:'#64748b',fontFamily:'DM Mono',fontSize:12}}>Loading...</div>}
     </div>
-  );
+  )
 }
 
-// ── MAIN COMPONENT ───────────────────────────────────────────────────────────
-export default function ContractEconomics() {
-  const [view, setView] = useState("leaderboard");
+// ── PAYROLL ───────────────────────────────────────────────────────────────────
+function PayrollView() {
+  const [team,setTeam]=useState('LAN')
+  const [season,setSeason]=useState(2024)
+  const [data,setData]=useState([])
+  const [loading,setLoading]=useState(false)
 
-  const views = [
-    { id: "leaderboard", label: "⚾ LEADERBOARD" },
-    { id: "market",      label: "📈 MARKET RATE" },
-    { id: "team",        label: "🏟 BY TEAM" },
-  ];
+  const load = useCallback(()=>{
+    setLoading(true)
+    fetch(`${API}/economics/payroll?team=${team}&season=${season}`)
+      .then(r=>r.json()).then(setData).finally(()=>setLoading(false))
+  },[team,season])
+
+  useEffect(()=>{load()},[load])
+
+  const total = data.reduce((s,r)=>s+(r.salary||0),0)
+  const years = Array.from({length:18},(_,i)=>2009+i)
 
   return (
-    <div style={{ background: T.bg, minHeight: "100vh", padding: "0 0 48px" }}>
-      {/* Header */}
-      <div style={{ borderBottom: `1px solid ${T.border}`, padding: "20px 24px 0", background: T.bgCard }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 4 }}>
-          <h1 style={{ fontFamily: "Bebas Neue, sans-serif", fontSize: 32, letterSpacing: "0.06em", color: T.accent, margin: 0 }}>
-            CONTRACT ECONOMICS
-          </h1>
-          <span style={{ fontFamily: "DM Mono, monospace", fontSize: 11, color: T.textLow, letterSpacing: "0.1em" }}>
-            1991 – 2026 · FA CLASS ANALYSIS
-          </span>
-        </div>
-        <p style={{ fontFamily: "DM Mono, monospace", fontSize: 11, color: T.textLow, margin: "0 0 16px", maxWidth: 600 }}>
-          Era-normalized contract value using implied $/WAR market rates. Surplus = market value of WAR delivered minus salary paid — positive means the team won.
-        </p>
-        {/* Sub-nav */}
-        <div style={{ display: "flex", gap: 0 }}>
-          {views.map(v => (
-            <button key={v.id} onClick={() => setView(v.id)} style={{
-              padding: "8px 18px", fontFamily: "DM Mono, monospace", fontSize: 11, letterSpacing: "0.08em",
-              cursor: "pointer", border: "none", background: "transparent",
-              color: view === v.id ? T.accent : T.textLow,
-              borderBottom: view === v.id ? `2px solid ${T.accent}` : "2px solid transparent",
-              transition: "all 0.15s",
-            }}>{v.label}</button>
-          ))}
-        </div>
+    <div>
+      <div style={{display:'flex',gap:8,marginBottom:16,alignItems:'center',flexWrap:'wrap'}}>
+        <input placeholder="Team" style={{...inp,width:80}} value={team}
+               onChange={e=>setTeam(e.target.value.toUpperCase())}/>
+        <select style={{...inp,cursor:'pointer'}} value={season} onChange={e=>setSeason(+e.target.value)}>
+          {years.map(y=><option key={y} value={y}>{y}</option>)}
+        </select>
+        {data.length>0 && <span style={{fontFamily:'DM Mono',fontSize:12,color:'#64748b'}}>
+          {data.length} players · {fmt.dollars(total)}
+        </span>}
       </div>
-
-      {/* Content */}
-      <div style={{ padding: "20px 24px" }}>
-        {view === "leaderboard" && <LeaderboardView />}
-        {view === "market"      && <MarketRateView />}
-        {view === "team"        && <TeamView />}
+      {loading && <div style={{color:'#64748b',fontFamily:'DM Mono',fontSize:12}}>Loading...</div>}
+      <div style={{overflowX:'auto'}}>
+        <table style={tableStyle}>
+          <thead><tr>
+            {['PLAYER','POS','TYPE','MLS','AGE','SALARY','CBT AAV','AGENT','CONTRACT'].map(h=>(
+              <th key={h} style={TH}>{h}</th>
+            ))}
+          </tr></thead>
+          <tbody>
+            {data.map((r,i)=>(
+              <tr key={i}>
+                <td style={{...TD,fontFamily:'Bebas Neue, sans-serif',fontSize:14,
+                            letterSpacing:'0.04em',color:'#e2e8f0'}}>
+                  {r.name}
+                  {r.is_international?<span style={{marginLeft:4,fontSize:9,background:'#f59e0b',
+                    color:'#000',padding:'1px 4px',borderRadius:3}}>INTL</span>:null}
+                </td>
+                <td style={{...TD,color:'#64748b'}}>{r.position}</td>
+                <td style={TD}><Badge type={r.contract_type}/></td>
+                <td style={{...TD,color:'#64748b',fontFamily:'DM Mono',fontSize:11}}>{fmt.mls(r.ml_service)}</td>
+                <td style={{...TD,color:'#64748b'}}>{r.age?Math.floor(r.age):'—'}</td>
+                <td style={{...TD,fontWeight:r.salary>15e6?600:400}}>{fmt.dollars(r.salary)}</td>
+                <td style={{...TD,color:'#64748b'}}>{r.cbt_aav?fmt.dollars(r.cbt_aav):'—'}</td>
+                <td style={{...TD,color:'#64748b',fontSize:11}}>{r.agent||'—'}</td>
+                <td style={{...TD,color:'#64748b',fontSize:11}}>{r.contract_notes||'—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
-  );
+  )
+}
+
+// ── EXTENSIONS ────────────────────────────────────────────────────────────────
+function ExtensionsView() {
+  const [data,setData]=useState([])
+  const [loading,setLoading]=useState(false)
+  const [sort,setSort]=useState({field:'signing_class',dir:'desc'})
+  const [filters,setFilters]=useState({team:'',era_start:'',era_end:'',position_group:''})
+
+  const load = useCallback(()=>{
+    setLoading(true)
+    const p = new URLSearchParams({sort_by:sort.field,order:sort.dir})
+    Object.entries(filters).forEach(([k,v])=>v&&p.set(k,v))
+    fetch(`${API}/economics/extensions?${p}`).then(r=>r.json()).then(setData)
+      .finally(()=>setLoading(false))
+  },[filters,sort])
+
+  useEffect(()=>{load()},[load])
+  const onSort = f => setSort(s=>({field:f,dir:s.field===f&&s.dir==='desc'?'asc':'desc'}))
+  const F = (k,v) => setFilters(f=>({...f,[k]:v}))
+
+  return (
+    <div>
+      <div style={{marginBottom:12,color:'#64748b',fontSize:13}}>
+        Extensions and international signings — service-time bucket breakdown
+      </div>
+      <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap',alignItems:'center'}}>
+        <input placeholder="Team" style={{...inp,width:80}} value={filters.team}
+               onChange={e=>F('team',e.target.value.toUpperCase())}/>
+        <input placeholder="From" type="number" style={{...inp,width:90}} value={filters.era_start}
+               onChange={e=>F('era_start',e.target.value)}/>
+        <input placeholder="To" type="number" style={{...inp,width:90}} value={filters.era_end}
+               onChange={e=>F('era_end',e.target.value)}/>
+        <select style={{...inp,cursor:'pointer'}} value={filters.position_group}
+                onChange={e=>F('position_group',e.target.value)}>
+          {['','SP','RP','C','1B','2B','3B','SS','OF','DH'].map(p=>(
+            <option key={p} value={p}>{p||'All positions'}</option>
+          ))}
+        </select>
+      </div>
+      {loading && <div style={{color:'#64748b',fontFamily:'DM Mono',fontSize:12}}>Loading...</div>}
+      <div style={{overflowX:'auto'}}>
+        <table style={tableStyle}>
+          <thead><tr>
+            {[['YR','signing_class'],['PLAYER',null],['TYPE',null],['TEAM',null],
+              ['POS',null],['MLS',null],['YRS','years'],['GUARANTEE','guarantee'],
+              ['AAV','aav'],['PRE','pre_arb_years'],['ARB','arb_years'],
+              ['FA','fa_years'],['%FA','pct_fa_years']].map(([l,f])=>(
+              f?<SortTH key={f} label={l} field={f} sort={sort} onSort={onSort}/>
+               :<th key={l} style={TH}>{l}</th>
+            ))}
+          </tr></thead>
+          <tbody>
+            {data.map((c,i)=>(
+              <tr key={i}>
+                <td style={{...TD,fontFamily:'DM Mono',color:'#64748b'}}>{c.signing_class}</td>
+                <td style={{...TD,fontFamily:'Bebas Neue, sans-serif',fontSize:14,
+                            letterSpacing:'0.04em',color:'#e2e8f0'}}>{c.name}</td>
+                <td style={TD}><Badge type={c.contract_type}/></td>
+                <td style={{...TD,color:'#64748b'}}>{c.new_team}</td>
+                <td style={{...TD,color:'#64748b'}}>{c.position}</td>
+                <td style={{...TD,color:'#64748b',fontFamily:'DM Mono',fontSize:11}}>
+                  {fmt.mls(c.ml_service_at_signing)}
+                </td>
+                <td style={{...TD,color:'#64748b'}}>{c.years}</td>
+                <td style={TD}>{fmt.dollars(c.guarantee)}</td>
+                <td style={TD}>{fmt.dollars(c.aav)}</td>
+                <td style={{...TD,color:'#22c55e',fontFamily:'DM Mono'}}>{c.pre_arb_years??'—'}</td>
+                <td style={{...TD,color:'#f59e0b',fontFamily:'DM Mono'}}>{c.arb_years??'—'}</td>
+                <td style={{...TD,color:'#3b82f6',fontFamily:'DM Mono'}}>{c.fa_years??'—'}</td>
+                <td style={{...TD}}>
+                  {c.pct_fa_years!=null?(
+                    <div style={{display:'flex',alignItems:'center',gap:6}}>
+                      <div style={{width:50,height:6,background:'#1e293b',borderRadius:3}}>
+                        <div style={{width:`${c.pct_fa_years}%`,height:'100%',borderRadius:3,
+                          background:c.pct_fa_years>66?'#3b82f6':c.pct_fa_years>33?'#f59e0b':'#22c55e'}}/>
+                      </div>
+                      <span style={{fontSize:10,fontFamily:'DM Mono',color:'#64748b'}}>
+                        {c.pct_fa_years.toFixed(0)}%
+                      </span>
+                    </div>
+                  ):'—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{marginTop:10,fontSize:11,color:'#64748b',fontFamily:'DM Mono',lineHeight:1.8}}>
+        PRE = pre-arb years · ARB = arbitration years · FA = free agent years ·
+        %FA bar: green=club control, orange=mixed, blue=FA years
+      </div>
+    </div>
+  )
+}
+
+// ── ROOT ──────────────────────────────────────────────────────────────────────
+export default function ContractEconomics() {
+  const [view, setView] = useState('LEADERBOARD')
+  return (
+    <div style={{padding:'24px 32px',maxWidth:1400}}>
+      <div style={{marginBottom:20}}>
+        <div style={{fontFamily:'Bebas Neue, sans-serif',fontSize:28,
+                     letterSpacing:'0.06em',color:'#e2e8f0',marginBottom:4}}>
+          CONTRACT ECONOMICS
+        </div>
+        <div style={{fontSize:12,color:'#64748b',fontFamily:'DM Mono'}}>
+          FA surplus · market rates · extensions · opening day payrolls · 1991–2026
+        </div>
+      </div>
+      <SubNav active={view} onChange={setView}/>
+      {view==='LEADERBOARD'  && <LeaderboardView/>}
+      {view==='MARKET RATE'  && <MarketRateView/>}
+      {view==='BY TEAM'      && <ByTeamView/>}
+      {view==='PAYROLL'      && <PayrollView/>}
+      {view==='EXTENSIONS'   && <ExtensionsView/>}
+    </div>
+  )
 }
