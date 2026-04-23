@@ -76,9 +76,10 @@ gh release create "$TAG" "$DIR/diamondmine.db" \
     --title "Database $TAG" \
     --notes "Daily update"
 
-# Update the DB URL in railway.toml and push to trigger auto-redeploy
+
+# Push to trigger Railway auto-redeploy.
+# Dockerfile fetches latest GitHub release automatically — no URL update needed.
 cd "$DIR"
-sed -i '' "s|DB_DOWNLOAD_URL=.*|DB_DOWNLOAD_URL=https://github.com/diamond-mine-baseball/minev2/releases/download/$TAG/diamondmine.db|g" railway.toml 2>/dev/null || true
 git add -A
 git commit -m "Daily update $TAG" --allow-empty
 git push
