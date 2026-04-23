@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { T } from '../theme'
 
-const API = '/api'
+const API = import.meta.env.VITE_API_URL || 'https://minev2-production-84a2.up.railway.app'
 
 const fmt = {
   dollars: v => v == null ? '—' : v >= 1e9 ? `$${(v/1e9).toFixed(2)}B`
