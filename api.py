@@ -1273,10 +1273,17 @@ def economics_extensions(
 
     rows = conn.execute(f"""
         SELECT ps.name, ps.team,
-               MIN(ps.season) AS first_season, MAX(ps.season) AS last_season,
+               MIN(ps.season)  AS first_season,
+               MAX(ps.season)  AS last_season,
+               COUNT(*)        AS seasons_in_db,
                ps.position, ps.contract_type, ps.ml_service,
-               ps.age, ps.agent, ps.contract_notes, ps.is_international,
-               MAX(ps.salary) AS salary
+               ps.age, ps.agent, ps.is_international,
+               MAX(ps.salary)  AS salary,
+               -- Pick the contract_notes with the longest year span (most informative)
+               (SELECT cn.contract_notes FROM player_salaries cn
+                WHERE cn.name = ps.name AND cn.team = ps.team
+                  AND cn.contract_type = ps.contract_type
+                ORDER BY LENGTH(cn.contract_notes) DESC LIMIT 1) AS contract_notes
         FROM player_salaries ps
         WHERE {" AND ".join(where)}
         GROUP BY ps.name, ps.team, ps.contract_type
@@ -1291,17 +1298,23 @@ def economics_extensions(
         d['position_group'] = POS_MAP.get(pos, pos.upper() if pos else None)
 
         yrs, total, t_start, t_end = _parse_contract_notes(d.get('contract_notes'))
-        d['years']     = yrs
-        d['guarantee'] = total
-        d['aav']       = round(total / yrs) if total and yrs else None
-        d['term_start']= t_start
-        d['term_end']  = t_end
+        seasons_in_db = d.get('seasons_in_db') or 1
+        # If parsed years < observed seasons, use observed span as the authoritative count
+        # (happens for arb players where each season has a 1yr contract note)
+        observed_span = (d.get('last_season') or d.get('first_season') or 0) - (d.get('first_season') or 0) + 1
+        effective_yrs = yrs if (yrs and yrs >= observed_span) else observed_span
+        d['years']        = effective_yrs
+        d['seasons_in_db']= seasons_in_db
+        d['guarantee']    = total
+        d['aav']          = round(total / yrs) if total and yrs else None
+        d['term_start']   = t_start
+        d['term_end']     = t_end
 
-        pre_arb, arb, fa = _service_buckets(d.get('ml_service'), yrs)
+        pre_arb, arb, fa = _service_buckets(d.get('ml_service'), effective_yrs)
         d['pre_arb_years'] = pre_arb
         d['arb_years']     = arb
         d['fa_years']      = fa
-        d['pct_fa_years']  = round(fa / yrs * 100, 1) if yrs and fa is not None else None
+        d['pct_fa_years']  = round(fa / effective_yrs * 100, 1) if effective_yrs and fa is not None else None
 
         result.append(d)
     return result
@@ -1387,7 +1400,9 @@ def economics_extension_surplus(
         mls_str      = seasons[0].get("ml_service")
 
         yrs, total, t_start, t_end = _parse_contract_notes(notes)
-        pre_arb_yrs, arb_yrs, fa_yrs = _service_buckets(mls_str, yrs)
+        observed_span = last_season - first_season + 1
+        effective_yrs = yrs if (yrs and yrs >= observed_span) else observed_span
+        pre_arb_yrs, arb_yrs, fa_yrs = _service_buckets(mls_str, effective_yrs)
         signing_rate = market_rates.get(first_season) or market_rates.get(first_season - 1)
         if not signing_rate:
             continue
@@ -1418,6 +1433,7 @@ def economics_extension_surplus(
         # For each season: team benefit = WAR * tier_rate, team cost = salary paid
         tiered_value = 0.0
         cur_mls = float(mls_str or 0)
+        yrs = effective_yrs  # use corrected years for result dict below
         for s in seasons:
             yr_war = war_by_season.get(s["season"], 0)
             lg_min = LG_MIN.get(s["season"], 740000)
@@ -1446,13 +1462,13 @@ def economics_extension_surplus(
             "last_season":       last_season,
             "seasons_in_db":     len(seasons),
             "contract_notes":    notes,
-            "years":             yrs,
+            "years":             effective_yrs,
             "guarantee":         total,
-            "aav":               round(total / yrs) if total and yrs else None,
+            "aav":               round(total / effective_yrs) if total and effective_yrs else None,
             "pre_arb_years":     pre_arb_yrs,
             "arb_years":         arb_yrs,
             "fa_years":          fa_yrs,
-            "pct_fa_years":      round(fa_yrs/yrs*100,1) if yrs and fa_yrs is not None else None,
+            "pct_fa_years":      round(fa_yrs/effective_yrs*100,1) if effective_yrs and fa_yrs is not None else None,
             "ml_service":        mls_str,
             "total_salary_paid": total_salary,
             "total_war":         round(total_war, 1),
