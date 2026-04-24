@@ -975,23 +975,20 @@ if __name__ == "__main__":
 # ── Economics endpoints ───────────────────────────────────────────────────────
 
 import re as _re
+from collections import defaultdict as _defaultdict
 
 def _parse_contract_notes(notes):
-    """Parse Cot's contract string e.g. '7 yr/$163.5M (18-24)' -> (years, total, t_start, t_end)"""
     if not notes:
         return None, None, None, None
     s = str(notes)
     years = total = t_start = t_end = None
-    # years: "7 yr" or "7 y/" or "10 year"
-    m = _re.search('[0-9]+\\s*(?:yr|y(?:ear)?)(?![a-z])', s, _re.I)
+    m = _re.search(r'(\d+)\s*(?:yr|y(?:ear)?)(?!\w)', s, _re.I)
     if m:
-        years = int(_re.search('[0-9]+', m.group()).group())
-    # total value: "$163.5M" or "$163M"
-    m = _re.search('\\$\\s*([0-9]+(?:\\.[0-9]+)?)\\s*[Mm]', s)
+        years = int(m.group(1))
+    m = _re.search(r'\$\s*(\d+(?:\.\d+)?)\s*[Mm]', s)
     if m:
         total = float(m.group(1)) * 1_000_000
-    # term: "(18-24)" or "(2018-2024)"
-    m = _re.search('\\(([0-9]{2,4})-([0-9]{2,4})\\)', s)
+    m = _re.search(r'\((\d{2,4})-(\d{2,4})\)', s)
     if m:
         sy, ey = int(m.group(1)), int(m.group(2))
         t_start = sy + 2000 if sy < 100 else sy
@@ -1000,7 +997,6 @@ def _parse_contract_notes(notes):
 
 
 def _service_buckets(mls_str, contract_years):
-    """Return (pre_arb, arb, fa) year counts given ML service time and contract length."""
     if not mls_str or not contract_years:
         return None, None, None
     try:
@@ -1372,8 +1368,7 @@ def economics_extension_surplus(
     ).fetchone()
     current_rate = latest_rate[0] if latest_rate else None
 
-    from collections import defaultdict
-    groups = defaultdict(list)
+    groups = _defaultdict(list)
     for r in ps_rows:
         groups[(r["name"], r["team"], r["contract_type"])].append(dict(r))
 
