@@ -986,13 +986,13 @@ def debug_extension_surplus():
         if sample:
             p = sample[0]
             row = conn.execute("""
-                SELECT COALESCE(SUM(war), 0) as war FROM (
-                    SELECT war FROM batting  WHERE name=? AND season=?
+                SELECT COALESCE(SUM(w), 0) as w FROM (
+                    SELECT bwar as w FROM batting  WHERE name=? AND season=?
                     UNION ALL
-                    SELECT war FROM pitching WHERE name=? AND season=?
+                    SELECT COALESCE(bwar,0) as w FROM pitching WHERE name=? AND season=?
                 )
             """, (p['name'], p['season'], p['name'], p['season'])).fetchone()
-            war_result = dict(row)
+            war_result = {'w': row['w']}
         # Step 5: try parse
         yrs, total, ts, te = _parse_contract_notes(sample[0]['contract_notes'] if sample else None)
         return {
@@ -1440,13 +1440,13 @@ def economics_extension_surplus(
         for s in seasons:
             yr = s["season"]
             row = conn.execute("""
-                SELECT COALESCE(SUM(war), 0) as war FROM (
-                    SELECT war FROM batting  WHERE name=? AND season=?
+                SELECT COALESCE(SUM(w), 0) as w FROM (
+                    SELECT bwar as w FROM batting  WHERE name=? AND season=?
                     UNION ALL
-                    SELECT war FROM pitching WHERE name=? AND season=?
+                    SELECT COALESCE(bwar,0) as w FROM pitching WHERE name=? AND season=?
                 )
             """, (name, yr, name, yr)).fetchone()
-            war_by_season[yr] = float(row["war"]) if row and row["war"] is not None else 0.0
+            war_by_season[yr] = float(row["w"]) if row and row["w"] is not None else 0.0
 
         total_war    = sum(war_by_season.values())
         total_salary = sum(s["salary"] or 0 for s in seasons)
