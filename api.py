@@ -1002,7 +1002,6 @@ def economics_leaderboard(
              "cv.years >= :min_years",
              "cv.signing_class BETWEEN :era_start AND :era_end"]
     params = dict(min_years=min_years, era_start=era_start, era_end=era_end)
-
     if position_group:
         where.append("cv.position_group = :position_group")
         params["position_group"] = position_group
@@ -1015,12 +1014,10 @@ def economics_leaderboard(
     if contract_type:
         where.append("COALESCE(c.contract_type,'fa') = :contract_type")
         params["contract_type"] = contract_type
-
     valid = {"realized_surplus","expected_surplus","total_realized_war",
              "aav","guarantee","signing_class","years"}
     col = sort_by if sort_by in valid else "realized_surplus"
     direction = "ASC" if order.lower() == "asc" else "DESC"
-
     rows = conn.execute(f"""
         SELECT cv.name, cv.canonical_name, cv.signing_class, cv.position,
                cv.position_group, cv.new_team, cv.age_at_signing, cv.years,
@@ -1075,7 +1072,6 @@ def economics_team(
              "total_realized_war","years"}
     col = sort_by if sort_by in valid else "signing_class"
     direction = "ASC" if order.lower() == "asc" else "DESC"
-
     rows = conn.execute(f"""
         SELECT cv.name, cv.canonical_name, cv.signing_class, cv.position,
                cv.position_group, cv.age_at_signing, cv.years,
@@ -1084,7 +1080,7 @@ def economics_team(
                cv.realized_surplus, cv.expected_surplus,
                cv.market_rate_at_signing,
                COALESCE(c.contract_type,'fa') AS contract_type,
-               COALESCE(c.has_deferral,0)    AS has_deferral,
+               COALESCE(c.has_deferral,0)     AS has_deferral,
                c.cbt_aav, c.agent
         FROM contract_valuations cv
         LEFT JOIN contracts c
@@ -1096,18 +1092,16 @@ def economics_team(
           AND cv.realized_surplus IS NOT NULL
         ORDER BY cv.{col} {direction}
     """, dict(team=team, era_start=era_start, era_end=era_end)).fetchall()
-
     contracts = [dict(r) for r in rows]
     total_spent   = sum(r["guarantee"]         or 0 for r in contracts)
     total_surplus = sum(r["realized_surplus"]  or 0 for r in contracts)
     total_war     = sum(r["total_realized_war"] or 0 for r in contracts)
-    wins          = sum(1 for r in contracts if (r["realized_surplus"] or 0) > 0)
+    wins = sum(1 for r in contracts if (r["realized_surplus"] or 0) > 0)
     return {
         "team": team, "era_start": era_start, "era_end": era_end,
         "total_contracts": len(contracts),
-        "total_spent":   total_spent,
-        "total_surplus": total_surplus,
-        "total_war":     total_war,
+        "total_spent": total_spent, "total_surplus": total_surplus,
+        "total_war": total_war,
         "win_rate": round(wins / len(contracts) * 100, 1) if contracts else 0,
         "contracts": contracts,
     }
@@ -1129,7 +1123,6 @@ def economics_payroll(
     if contract_type:
         where.append("contract_type = :contract_type")
         params["contract_type"] = contract_type
-
     rows = conn.execute(f"""
         SELECT name, team, season, salary, cbt_aav, position,
                ml_service, age, agent, contract_notes, contract_type,
@@ -1144,55 +1137,57 @@ def economics_payroll(
 
 @app.get("/economics/extensions")
 def economics_extensions(
-    team: str          = Query(""),
-    era_start: int     = Query(2009),
-    era_end: int       = Query(9999),
-    position_group: str= Query(""),
-    sort_by: str       = Query("salary"),
-    order: str         = Query("desc"),
+    team: str           = Query(""),
+    era_start: int      = Query(2009),
+    era_end: int        = Query(9999),
+    position_group: str = Query(""),
+    sort_by: str        = Query("salary"),
+    order: str          = Query("desc"),
 ):
-    """
-    Extensions and international signings from player_salaries table.
-    Deduped to one row per (name, team) keeping highest salary season.
-    Joined to contracts for WAR/surplus data where available.
-    """
+    """Extensions and international signings from player_salaries, deduped by (name, team)."""
     conn = get_db()
 
     POS_MAP = {
         'sp':'SP','rhp-s':'SP','lhp-s':'SP',
         'rp':'RP','lhp':'RP','rhp':'RP','rhp-r':'RP','lhp-r':'RP','lhp-c':'RP',
         'c':'C','1b':'1B','2b':'2B','3b':'3B','ss':'SS',
-        'lf':'OF','cf':'OF','rf':'OF','of':'OF','dh':'DH','util':'UTIL',
+        'lf':'OF','cf':'OF','rf':'OF','of':'OF',
+        'dh':'DH','util':'UTIL',
+    }
+    PG_POSITIONS = {
+        'SP':['sp','rhp-s','lhp-s'],
+        'RP':['rp','lhp','rhp','rhp-r','lhp-r','lhp-c'],
+        'C':['c'],'1B':['1b'],'2B':['2b'],'3B':['3b'],'SS':['ss'],
+        'OF':['lf','cf','rf','of'],'DH':['dh'],
     }
 
-    where = ["ps.contract_type IN ('extension','international')",
-             "ps.season BETWEEN :era_start AND :era_end"]
+    where = [
+        "ps.contract_type IN ('extension','international')",
+        "ps.season BETWEEN :era_start AND :era_end",
+    ]
     params: dict = dict(era_start=era_start, era_end=era_end)
+
     if team:
-        where.append("ps.team = :team"); params["team"] = team
+        where.append("ps.team = :team")
+        params["team"] = team
+
     if position_group:
-        where.append("UPPER(COALESCE(ps.position,'')) IN (:pg1,:pg2,:pg3,:pg4,:pg5)")
-        # Map position_group → raw positions for the WHERE clause
-        PG_TO_POS = {
-            'SP':['sp','rhp-s','lhp-s'],'RP':['rp','lhp','rhp','rhp-r','lhp-r'],
-            'OF':['lf','cf','rf','of'],
-        }
-        pos_list = PG_TO_POS.get(position_group.upper(), [position_group.lower()])
-        pos_list += [''] * (5 - len(pos_list))
-        for idx, p in enumerate(pos_list[:5], 1):
-            params[f'pg{idx}'] = p.upper()
+        pos_list = PG_POSITIONS.get(position_group.upper(), [position_group.lower()])
+        placeholders = ",".join(f":pos{i}" for i in range(len(pos_list)))
+        where.append(f"LOWER(ps.position) IN ({placeholders})")
+        for i, p in enumerate(pos_list):
+            params[f"pos{i}"] = p
 
     valid = {"salary","season","ml_service"}
     col = f"ps.{sort_by}" if sort_by in valid else "ps.salary"
     direction = "ASC" if order.lower() == "asc" else "DESC"
 
-    # One row per (name, team) — pick the season with highest salary
     rows = conn.execute(f"""
         SELECT
             ps.name,
             ps.team,
-            MIN(ps.season)                              AS first_season,
-            MAX(ps.season)                              AS last_season,
+            MIN(ps.season)   AS first_season,
+            MAX(ps.season)   AS last_season,
             ps.position,
             ps.contract_type,
             ps.ml_service,
@@ -1201,8 +1196,7 @@ def economics_extensions(
             ps.contract_notes,
             ps.is_international,
             ps.draft_year,
-            MAX(ps.salary)                              AS salary,
-            -- Join contract valuations for WAR/surplus
+            MAX(ps.salary)   AS salary,
             cv.total_realized_war,
             cv.realized_surplus,
             cv.years,
@@ -1211,31 +1205,20 @@ def economics_extensions(
             cv.term_start,
             cv.term_end,
             cv.contract_status,
-            cv.market_rate_at_signing,
             c.pre_arb_years,
             c.arb_years,
             c.fa_years,
-            CASE WHEN c.years > 0
-                 THEN ROUND(CAST(COALESCE(c.fa_years,0) AS REAL)/c.years*100,1)
-                 ELSE NULL END AS pct_fa_years,
-            c.has_deferral,
-            c.cbt_aav,
-            c.source_league
+            c.has_deferral
         FROM player_salaries ps
         LEFT JOIN contract_valuations cv
-               ON LOWER(cv.name) = LOWER(ps.name)
-              AND cv.new_team = ps.team
-              AND cv.term_start <= ps.season
-              AND cv.term_end   >= ps.season
+               ON LOWER(cv.name)  = LOWER(ps.name)
+              AND cv.new_team      = ps.team
+              AND cv.term_start   <= ps.season
+              AND cv.term_end     >= ps.season
         LEFT JOIN contracts c
-               ON c.rowid = (
-                   SELECT rowid FROM contracts cc
-                   WHERE LOWER(cc.name) = LOWER(ps.name)
-                     AND cc.new_team = ps.team
-                     AND cc.is_mlb = 1
-                   ORDER BY ABS(cc.signing_class - ps.season)
-                   LIMIT 1
-               )
+               ON LOWER(c.name)   = LOWER(ps.name)
+              AND c.new_team       = ps.team
+              AND c.is_mlb         = 1
         WHERE {" AND ".join(where)}
         GROUP BY ps.name, ps.team, ps.contract_type
         ORDER BY {col} {direction}
@@ -1247,5 +1230,8 @@ def economics_extensions(
         d = dict(r)
         pos = (d.get('position') or '').lower().strip()
         d['position_group'] = POS_MAP.get(pos, pos.upper() if pos else None)
+        yrs = d.get('years') or 0
+        fa  = d.get('fa_years') or 0
+        d['pct_fa_years'] = round(fa / yrs * 100, 1) if yrs > 0 else None
         result.append(d)
     return result
