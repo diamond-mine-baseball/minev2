@@ -959,6 +959,52 @@ def _compute_pitcher_sdi(conn, current, season):
     }
 
 
+
+
+@app.get("/debug/extension-surplus")
+def debug_extension_surplus():
+    import traceback
+    try:
+        conn = get_db()
+        # Step 1: check player_salaries exists
+        n = conn.execute("SELECT COUNT(*) FROM player_salaries WHERE contract_type='extension'").fetchone()[0]
+        # Step 2: check market_rates
+        mr = conn.execute("SELECT COUNT(*) FROM market_rates").fetchone()[0]
+        # Step 3: try the full query
+        rows = conn.execute("""
+            SELECT ps.name, ps.team, ps.season, ps.salary, ps.position,
+                   ps.contract_type, ps.ml_service, ps.contract_notes
+            FROM player_salaries ps
+            WHERE ps.contract_type IN ('extension','international')
+            AND ps.season BETWEEN 2022 AND 2023
+            AND ps.team = 'MIN'
+            LIMIT 3
+        """).fetchall()
+        sample = [dict(r) for r in rows]
+        # Step 4: try WAR query for first player
+        war_result = None
+        if sample:
+            p = sample[0]
+            row = conn.execute("""
+                SELECT COALESCE(SUM(war), 0) as war FROM (
+                    SELECT war FROM batting  WHERE name=? AND season=?
+                    UNION ALL
+                    SELECT war FROM pitching WHERE name=? AND season=?
+                )
+            """, (p['name'], p['season'], p['name'], p['season'])).fetchone()
+            war_result = dict(row)
+        # Step 5: try parse
+        yrs, total, ts, te = _parse_contract_notes(sample[0]['contract_notes'] if sample else None)
+        return {
+            "extension_rows": n,
+            "market_rate_rows": mr,
+            "sample": sample,
+            "war_result": war_result,
+            "parse_result": {"years": yrs, "total": total, "term_start": ts, "term_end": te}
+        }
+    except Exception as e:
+        return {"error": str(e), "traceback": traceback.format_exc()}
+
 if __name__ == "__main__":
     import uvicorn
     port = int(_os.getenv("PORT", 5001))
