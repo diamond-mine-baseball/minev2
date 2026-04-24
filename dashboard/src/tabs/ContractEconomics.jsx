@@ -128,7 +128,7 @@ function LeaderboardView() {
             <th style={TH}>#</th><th style={TH}>PLAYER</th><th style={TH}>TYPE</th>
             {[['YR','signing_class'],['TEAM','new_team'],['POS','position_group'],
               ['YRS','years'],['AAV','aav'],['rWAR','total_realized_war'],
-              ['SURPLUS','realized_surplus']].map(([l,f])=>(
+              ['SURPLUS','realized_surplus'],['WAR-$ ADJ','inflation_adj_surplus']].map(([l,f])=>(
               <SortTH key={f} label={l} field={f} sort={sort} onSort={onSort} />
             ))}
           </tr></thead>
@@ -154,6 +154,9 @@ function LeaderboardView() {
                     <td style={{...TD,color:SURPLUS_COLOR(c.realized_surplus),fontWeight:600}}>
                       {fmt.surplus(c.realized_surplus)}
                     </td>
+                    <td style={{...TD,color:SURPLUS_COLOR(c.inflation_adj_surplus),fontWeight:500,fontSize:11}}>
+                      {fmt.surplus(c.inflation_adj_surplus)}
+                    </td>
                   </tr>
                   {open && (
                     <tr><td colSpan={10} style={{padding:'12px 24px',background:'#020617',
@@ -169,6 +172,7 @@ function LeaderboardView() {
                           ['$/WAR at signing', fmt.dollars(c.market_rate_at_signing)],
                           ['Market value', fmt.dollars(c.realized_market_value)],
                           ['Realized surplus', fmt.surplus(c.realized_surplus)],
+                          ['WAR-$ adj surplus', fmt.surplus(c.inflation_adj_surplus)],
                           ['Expected surplus', fmt.surplus(c.expected_surplus)],
                           ...(c.pre_arb_years!=null?[
                             ['Pre-arb yrs', c.pre_arb_years??'—'],
@@ -326,6 +330,9 @@ function ByTeamView() {
                     <td style={TD}>{fmt.war(c.total_realized_war)}</td>
                     <td style={{...TD,color:SURPLUS_COLOR(c.realized_surplus),fontWeight:600}}>
                       {fmt.surplus(c.realized_surplus)}
+                    </td>
+                    <td style={{...TD,color:SURPLUS_COLOR(c.inflation_adj_surplus),fontWeight:500,fontSize:11}}>
+                      {fmt.surplus(c.inflation_adj_surplus)}
                     </td>
                   </tr>
                 ))}

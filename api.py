@@ -1018,6 +1018,14 @@ def economics_leaderboard(
              "aav","guarantee","signing_class","years"}
     col = sort_by if sort_by in valid else "realized_surplus"
     direction = "ASC" if order.lower() == "asc" else "DESC"
+    # Get latest market rate for inflation adjustment
+    latest_rate = conn.execute("""
+        SELECT dollars_per_war FROM market_rates
+        WHERE dollars_per_war IS NOT NULL
+        ORDER BY season DESC LIMIT 1
+    """).fetchone()
+    current_rate = latest_rate[0] if latest_rate else None
+
     rows = conn.execute(f"""
         SELECT cv.name, cv.canonical_name, cv.signing_class, cv.position,
                cv.position_group, cv.new_team, cv.age_at_signing, cv.years,
@@ -1037,7 +1045,25 @@ def economics_leaderboard(
         ORDER BY cv.{col} {direction}
         LIMIT :limit
     """, {**params, "limit": limit}).fetchall()
-    return [dict(r) for r in rows]
+
+    result = []
+    for r in rows:
+        d = dict(r)
+        # Inflation-adjusted surplus: WAR revalued at current market rate
+        # Formula: (realized_WAR × current_$/WAR) - salary_paid
+        # salary_paid approximated from realized_market_value - realized_surplus
+        if current_rate and d.get('realized_surplus') is not None and d.get('market_rate_at_signing'):
+            # Scale raw surplus by (current_$/WAR / signing_$/WAR)
+            # Older contracts expand; recent contracts where $/WAR dipped shrink slightly
+            # Answers: what would this contractual outcome be worth in today's market?
+            scaling = current_rate / d['market_rate_at_signing']
+            d['inflation_adj_surplus'] = round(d['realized_surplus'] * scaling)
+            d['current_market_rate'] = current_rate
+        else:
+            d['inflation_adj_surplus'] = None
+            d['current_market_rate'] = current_rate
+        result.append(d)
+    return result
 
 
 @app.get("/economics/player")
@@ -1144,7 +1170,9 @@ def economics_extensions(
     sort_by: str        = Query("salary"),
     order: str          = Query("desc"),
 ):
-    """Extensions and international signings from player_salaries, deduped by (name, team)."""
+    """Extensions and international signings. Parses contract_notes for term/value."""
+    import re as _re
+
     conn = get_db()
 
     POS_MAP = {
@@ -1160,6 +1188,36 @@ def economics_extensions(
         'C':['c'],'1B':['1b'],'2B':['2b'],'3B':['3b'],'SS':['ss'],
         'OF':['lf','cf','rf','of'],'DH':['dh'],
     }
+
+    def parse_notes(notes):
+        """Parse '12 y/$426.5M (19-30)' → (years, total, t_start, t_end)."""
+        if not notes: return None, None, None, None
+        notes = str(notes)
+        years = total = t_start = t_end = None
+        m = _re.search(r'(\d+)\s*(?:yr|y(?:ear)?)', notes, _re.I)
+        if m: years = int(m.group(1))
+        m = _re.search(r'\$\s*([\d.]+)\s*[Mm]', notes)
+        if m: total = float(m.group(1)) * 1_000_000
+        m = _re.search(r'\((\d{2,4})-(\d{2,4})\)', notes)
+        if m:
+            s, e = int(m.group(1)), int(m.group(2))
+            t_start = (s + 2000) if s < 100 else s
+            t_end   = (e + 2000) if e < 100 else e
+        return years, total, t_start, t_end
+
+    def service_buckets(mls_str, contract_years):
+        """Derive pre_arb/arb/fa year counts from ML service time + contract length."""
+        if not mls_str or not contract_years: return None, None, None
+        try: mls = float(str(mls_str).strip())
+        except: return None, None, None
+        pre_arb = arb = fa = 0
+        cur = mls
+        for _ in range(int(contract_years)):
+            if cur < 3.0:   pre_arb += 1
+            elif cur < 6.0: arb     += 1
+            else:           fa      += 1
+            cur += 1.0
+        return pre_arb, arb, fa
 
     where = [
         "ps.contract_type IN ('extension','international')",
@@ -1179,15 +1237,16 @@ def economics_extensions(
             params[f"pos{i}"] = p
 
     valid = {"salary","season","ml_service"}
-    col = f"ps.{sort_by}" if sort_by in valid else "ps.salary"
+    col = f"MAX(ps.salary)" if sort_by == "salary" else (
+          f"MIN(ps.season)" if sort_by == "season" else "MAX(ps.salary)")
     direction = "ASC" if order.lower() == "asc" else "DESC"
 
     rows = conn.execute(f"""
         SELECT
             ps.name,
             ps.team,
-            MIN(ps.season)   AS first_season,
-            MAX(ps.season)   AS last_season,
+            MIN(ps.season)    AS first_season,
+            MAX(ps.season)    AS last_season,
             ps.position,
             ps.contract_type,
             ps.ml_service,
@@ -1195,30 +1254,8 @@ def economics_extensions(
             ps.agent,
             ps.contract_notes,
             ps.is_international,
-            ps.draft_year,
-            MAX(ps.salary)   AS salary,
-            cv.total_realized_war,
-            cv.realized_surplus,
-            cv.years,
-            cv.aav,
-            cv.guarantee,
-            cv.term_start,
-            cv.term_end,
-            cv.contract_status,
-            c.pre_arb_years,
-            c.arb_years,
-            c.fa_years,
-            c.has_deferral
+            MAX(ps.salary)    AS salary
         FROM player_salaries ps
-        LEFT JOIN contract_valuations cv
-               ON LOWER(cv.name)  = LOWER(ps.name)
-              AND cv.new_team      = ps.team
-              AND cv.term_start   <= ps.season
-              AND cv.term_end     >= ps.season
-        LEFT JOIN contracts c
-               ON LOWER(c.name)   = LOWER(ps.name)
-              AND c.new_team       = ps.team
-              AND c.is_mlb         = 1
         WHERE {" AND ".join(where)}
         GROUP BY ps.name, ps.team, ps.contract_type
         ORDER BY {col} {direction}
@@ -1230,8 +1267,21 @@ def economics_extensions(
         d = dict(r)
         pos = (d.get('position') or '').lower().strip()
         d['position_group'] = POS_MAP.get(pos, pos.upper() if pos else None)
-        yrs = d.get('years') or 0
-        fa  = d.get('fa_years') or 0
-        d['pct_fa_years'] = round(fa / yrs * 100, 1) if yrs > 0 else None
+
+        # Parse contract details from notes
+        yrs, total, t_start, t_end = parse_notes(d.get('contract_notes'))
+        d['years']     = yrs
+        d['guarantee'] = total
+        d['aav']       = round(total / yrs) if total and yrs else None
+        d['term_start']= t_start
+        d['term_end']  = t_end
+
+        # Compute service-time buckets from ml_service + contract length
+        pre_arb, arb, fa = service_buckets(d.get('ml_service'), yrs)
+        d['pre_arb_years'] = pre_arb
+        d['arb_years']     = arb
+        d['fa_years']      = fa
+        d['pct_fa_years']  = round(fa / yrs * 100, 1) if yrs and fa is not None else None
+
         result.append(d)
     return result
