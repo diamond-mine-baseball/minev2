@@ -309,7 +309,8 @@ function ByTeamView() {
               <thead><tr>
                 {[['YR','signing_class'],['PLAYER',null],['TYPE',null],['POS','position_group'],
                   ['YRS','years'],['AAV','aav'],['GUARANTEE','guarantee'],
-                  ['rWAR','total_realized_war'],['SURPLUS','realized_surplus']].map(([l,f])=>(
+                  ['rWAR','total_realized_war'],['SURPLUS','realized_surplus'],
+                  ['WAR-$ ADJ','inflation_adj_surplus']].map(([l,f])=>(
                   f?<SortTH key={f} label={l} field={f} sort={sort} onSort={onSort}/>
                    :<th key={l} style={TH}>{l}</th>
                 ))}
