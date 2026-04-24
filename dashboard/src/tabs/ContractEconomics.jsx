@@ -413,28 +413,56 @@ function PayrollView() {
 
 // ── EXTENSIONS ────────────────────────────────────────────────────────────────
 function ExtensionsView() {
-  const [data,setData]=useState([])
-  const [loading,setLoading]=useState(false)
-  const [sort,setSort]=useState({field:'signing_class',dir:'desc'})
-  const [filters,setFilters]=useState({team:'',era_start:'',era_end:'',position_group:''})
+  const [mode,   setMode]   = useState('basic')
+  const [data,   setData]   = useState([])
+  const [sData,  setSData]  = useState([])
+  const [loading,setLoading]= useState(false)
+  const [sort,   setSort]   = useState({field:'salary',   dir:'desc'})
+  const [sSort,  setSSort]  = useState({field:'fa_rate_surplus',dir:'desc'})
+  const [filters,setFilters]= useState({team:'',era_start:'',era_end:'',position_group:''})
 
   const load = useCallback(()=>{
     setLoading(true)
     const p = new URLSearchParams({sort_by:sort.field,order:sort.dir})
     Object.entries(filters).forEach(([k,v])=>v&&p.set(k,v))
-    fetch(`${API}/economics/extensions?${p}`).then(r=>r.json()).then(setData)
-      .finally(()=>setLoading(false))
+    fetch(`${API}/economics/extensions?${p}`)
+      .then(r=>r.json()).then(setData).finally(()=>setLoading(false))
   },[filters,sort])
 
-  useEffect(()=>{load()},[load])
-  const onSort = f => setSort(s=>({field:f,dir:s.field===f&&s.dir==='desc'?'asc':'desc'}))
+  const loadSurplus = useCallback(()=>{
+    setSData([])
+    const p = new URLSearchParams({sort_by:sSort.field,order:sSort.dir,min_seasons:2})
+    Object.entries(filters).forEach(([k,v])=>v&&p.set(k,v))
+    fetch(`${API}/economics/extension-surplus?${p}`)
+      .then(r=>r.json()).then(setSData)
+  },[filters,sSort])
+
+  useEffect(()=>{ if(mode==='basic')   load()        },[mode,load])
+  useEffect(()=>{ if(mode==='surplus') loadSurplus() },[mode,loadSurplus])
+
+  const onSort  = f => setSort( s=>({field:f,dir:s.field===f&&s.dir==='desc'?'asc':'desc'}))
+  const onSSort = f => setSSort(s=>({field:f,dir:s.field===f&&s.dir==='desc'?'asc':'desc'}))
   const F = (k,v) => setFilters(f=>({...f,[k]:v}))
 
   return (
     <div>
-      <div style={{marginBottom:12,color:'#64748b',fontSize:13}}>
-        Extensions and international signings — service-time bucket breakdown
+      {/* Mode toggle */}
+      <div style={{display:'flex',gap:8,marginBottom:16,alignItems:'center'}}>
+        {['basic','surplus'].map(m=>(
+          <button key={m} onClick={()=>setMode(m)} style={{
+            padding:'5px 14px',borderRadius:4,border:'none',cursor:'pointer',
+            fontFamily:'DM Mono, monospace',fontSize:11,letterSpacing:'0.08em',
+            background:mode===m?'#a855f7':'#1e293b',color:mode===m?'#fff':'#64748b'
+          }}>{m==='basic'?'ROSTER BREAKDOWN':'SURPLUS VS FA'}</button>
+        ))}
+        {mode==='surplus' && (
+          <span style={{fontSize:11,color:'#64748b',fontFamily:'DM Mono',marginLeft:8}}>
+            Counterfactual: what would this WAR have cost on the open FA market?
+          </span>
+        )}
       </div>
+
+      {/* Shared filters */}
       <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap',alignItems:'center'}}>
         <input placeholder="Team" style={{...inp,width:80}} value={filters.team}
                onChange={e=>F('team',e.target.value.toUpperCase())}/>
@@ -449,58 +477,106 @@ function ExtensionsView() {
           ))}
         </select>
       </div>
-      {loading && <div style={{color:'#64748b',fontFamily:'DM Mono',fontSize:12}}>Loading...</div>}
-      <div style={{overflowX:'auto'}}>
-        <table style={tableStyle}>
-          <thead><tr>
-            {[['SEASONS',null],['PLAYER',null],['TYPE',null],['TEAM',null],
-              ['POS',null],['MLS','ml_service'],['YRS','years'],['GUARANTEE','guarantee'],
-              ['SALARY','salary'],['PRE',null],['ARB',null],
-              ['FA',null],['%FA',null]].map(([l,f])=>(
-              f?<SortTH key={f} label={l} field={f} sort={sort} onSort={onSort}/>
-               :<th key={l} style={TH}>{l}</th>
-            ))}
-          </tr></thead>
-          <tbody>
-            {data.map((c,i)=>(
-              <tr key={i}>
-                <td style={{...TD,fontFamily:'DM Mono',color:'#64748b'}}>{c.first_season}–{c.last_season}</td>
-                <td style={{...TD,fontFamily:'Bebas Neue, sans-serif',fontSize:14,
-                            letterSpacing:'0.04em',color:'#e2e8f0'}}>{c.name}</td>
-                <td style={TD}><Badge type={c.contract_type}/></td>
-                <td style={{...TD,color:'#64748b'}}>{c.team}</td>
-                <td style={{...TD,color:'#64748b'}}>{c.position_group}</td>
-                <td style={{...TD,color:'#64748b',fontFamily:'DM Mono',fontSize:11}}>
-                  {fmt.mls(c.ml_service)}
-                </td>
-                <td style={{...TD,color:'#64748b'}}>{c.years||'—'}</td>
-                <td style={TD}>{fmt.dollars(c.guarantee)}</td>
-                <td style={TD}>{c.salary ? fmt.dollars(c.salary) : fmt.dollars(c.aav)}</td>
-                <td style={{...TD,color:'#22c55e',fontFamily:'DM Mono'}}>{c.pre_arb_years??'—'}</td>
-                <td style={{...TD,color:'#f59e0b',fontFamily:'DM Mono'}}>{c.arb_years??'—'}</td>
-                <td style={{...TD,color:'#3b82f6',fontFamily:'DM Mono'}}>{c.fa_years??'—'}</td>
-                <td style={{...TD}}>
-                  {c.pct_fa_years!=null?(
-                    <div style={{display:'flex',alignItems:'center',gap:6}}>
-                      <div style={{width:50,height:6,background:'#1e293b',borderRadius:3}}>
-                        <div style={{width:`${c.pct_fa_years}%`,height:'100%',borderRadius:3,
-                          background:c.pct_fa_years>66?'#3b82f6':c.pct_fa_years>33?'#f59e0b':'#22c55e'}}/>
-                      </div>
-                      <span style={{fontSize:10,fontFamily:'DM Mono',color:'#64748b'}}>
-                        {c.pct_fa_years.toFixed(0)}%
-                      </span>
-                    </div>
-                  ):'—'}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div style={{marginTop:10,fontSize:11,color:'#64748b',fontFamily:'DM Mono',lineHeight:1.8}}>
-        PRE = pre-arb years · ARB = arbitration years · FA = free agent years ·
-        %FA bar: green=club control, orange=mixed, blue=FA years
-      </div>
+
+      {/* BASIC — roster breakdown */}
+      {mode==='basic' && (
+        <>
+          {loading && <div style={{color:'#64748b',fontFamily:'DM Mono',fontSize:12}}>Loading...</div>}
+          <div style={{overflowX:'auto'}}>
+            <table style={tableStyle}>
+              <thead><tr>
+                {[['SEASONS',null],['PLAYER',null],['TYPE',null],['TEAM',null],
+                  ['POS',null],['MLS','ml_service'],['YRS','years'],['GUARANTEE','guarantee'],
+                  ['SALARY','salary'],['PRE',null],['ARB',null],['FA',null],['%FA',null]
+                ].map(([l,f])=>(
+                  f?<SortTH key={f} label={l} field={f} sort={sort} onSort={onSort}/>
+                   :<th key={l} style={TH}>{l}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {data.map((c,i)=>(
+                  <tr key={i}>
+                    <td style={{...TD,fontFamily:'DM Mono',color:'#64748b',fontSize:11}}>{c.first_season}–{c.last_season}</td>
+                    <td style={{...TD,fontFamily:'Bebas Neue, sans-serif',fontSize:14,letterSpacing:'0.04em',color:'#e2e8f0'}}>{c.name}</td>
+                    <td style={TD}><Badge type={c.contract_type}/></td>
+                    <td style={{...TD,color:'#64748b'}}>{c.team}</td>
+                    <td style={{...TD,color:'#64748b'}}>{c.position_group}</td>
+                    <td style={{...TD,color:'#64748b',fontFamily:'DM Mono',fontSize:11}}>{fmt.mls(c.ml_service)}</td>
+                    <td style={{...TD,color:'#64748b'}}>{c.years??'—'}</td>
+                    <td style={TD}>{fmt.dollars(c.guarantee)}</td>
+                    <td style={{...TD,fontWeight:c.salary>15e6?600:400}}>{fmt.dollars(c.salary)}</td>
+                    <td style={{...TD,color:'#22c55e',fontFamily:'DM Mono'}}>{c.pre_arb_years??'—'}</td>
+                    <td style={{...TD,color:'#f59e0b',fontFamily:'DM Mono'}}>{c.arb_years??'—'}</td>
+                    <td style={{...TD,color:'#3b82f6',fontFamily:'DM Mono'}}>{c.fa_years??'—'}</td>
+                    <td style={{...TD}}>
+                      {c.pct_fa_years!=null?(
+                        <div style={{display:'flex',alignItems:'center',gap:6}}>
+                          <div style={{width:50,height:6,background:'#1e293b',borderRadius:3}}>
+                            <div style={{width:`${c.pct_fa_years}%`,height:'100%',borderRadius:3,
+                              background:c.pct_fa_years>66?'#3b82f6':c.pct_fa_years>33?'#f59e0b':'#22c55e'}}/>
+                          </div>
+                          <span style={{fontSize:10,fontFamily:'DM Mono',color:'#64748b'}}>
+                            {c.pct_fa_years.toFixed(0)}%
+                          </span>
+                        </div>
+                      ):'—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{marginTop:10,fontSize:11,color:'#64748b',fontFamily:'DM Mono',lineHeight:1.8}}>
+            PRE = pre-arb years · ARB = arbitration years · FA = free agent years ·
+            %FA bar: green=club control, orange=mixed, blue=FA years
+          </div>
+        </>
+      )}
+
+      {/* SURPLUS VS FA */}
+      {mode==='surplus' && (
+        <div style={{overflowX:'auto'}}>
+          <div style={{marginBottom:12,fontSize:11,color:'#64748b',fontFamily:'DM Mono',lineHeight:1.7}}>
+            <span style={{color:'#a855f7',fontWeight:600}}>FA-RATE SURPLUS</span> — all WAR valued at FA $/WAR at
+            signing (overstates benefit for pre-arb/arb years)&nbsp;·&nbsp;
+            <span style={{color:'#22c55e',fontWeight:600}}>TIERED SURPLUS</span> — pre-arb at league min,
+            arb at 50% of FA rate, FA years at full rate
+          </div>
+          <table style={tableStyle}>
+            <thead><tr>
+              {[['SEASONS',null],['PLAYER',null],['TEAM',null],['POS',null],
+                ['YRS',null],['SALARY PAID',null],['rWAR',null],
+                ['FA-RATE','fa_rate_surplus'],['TIERED','tiered_surplus'],
+                ['WAR-$ ADJ','inflation_adj_surplus']
+              ].map(([l,f])=>(
+                f?<SortTH key={f} label={l} field={f} sort={sSort} onSort={onSSort}/>
+                 :<th key={l} style={TH}>{l}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {sData.map((c,i)=>(
+                <tr key={i}>
+                  <td style={{...TD,fontFamily:'DM Mono',color:'#64748b',fontSize:11}}>{c.first_season}–{c.last_season}</td>
+                  <td style={{...TD,fontFamily:'Bebas Neue, sans-serif',fontSize:14,letterSpacing:'0.04em',color:'#e2e8f0'}}>{c.name}</td>
+                  <td style={{...TD,color:'#64748b'}}>{c.team}</td>
+                  <td style={{...TD,color:'#64748b'}}>{c.position_group}</td>
+                  <td style={{...TD,color:'#64748b'}}>{c.years??'—'}</td>
+                  <td style={TD}>{fmt.dollars(c.total_salary_paid)}</td>
+                  <td style={TD}>{fmt.war(c.total_war)}</td>
+                  <td style={{...TD,color:SURPLUS_COLOR(c.fa_rate_surplus),fontWeight:600}}>{fmt.surplus(c.fa_rate_surplus)}</td>
+                  <td style={{...TD,color:SURPLUS_COLOR(c.tiered_surplus),fontWeight:600}}>{fmt.surplus(c.tiered_surplus)}</td>
+                  <td style={{...TD,color:SURPLUS_COLOR(c.inflation_adj_surplus),fontWeight:500,fontSize:11}}>{fmt.surplus(c.inflation_adj_surplus)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {sData.length>0 && (
+            <div style={{marginTop:10,fontSize:11,color:'#64748b',fontFamily:'DM Mono'}}>
+              {sData.length} extensions · Only seasons in payroll data counted · WAR from batting + pitching tables
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
