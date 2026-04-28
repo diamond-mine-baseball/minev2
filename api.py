@@ -1026,7 +1026,12 @@ def to_cots(team): return BREF_TO_COTS.get(team, team)
 
 def _ext_surplus_rows(conn, current_rate, team="", era_start=0, era_end=9999,
                       position_group="", contract_type="", min_years=1, limit=200):
-    """Build extension/international rows in leaderboard format."""
+    """
+    Build extension/international rows in leaderboard format.
+    Groups by PARSED CONTRACT TERM (t_start, t_end) from contract_notes so each
+    distinct extension is a separate row. Voiding is detected naturally when a
+    subsequent contract starts before the prior one's term_end.
+    """
     POS_MAP = {
         'sp':'SP','rhp-s':'SP','lhp-s':'SP','rp':'RP','lhp':'RP','rhp':'RP',
         'rhp-r':'RP','lhp-r':'RP','lhp-c':'RP','c':'C','1b':'1B','2b':'2B',
@@ -1036,80 +1041,108 @@ def _ext_surplus_rows(conn, current_rate, team="", era_start=0, era_end=9999,
     where = ["ps.contract_type IN ('extension','international')",
              "ps.season BETWEEN :es AND :ee"]
     params = dict(es=era_start or 2009, ee=era_end or 9999)
-
     if contract_type in ('extension','international'):
         where.append("ps.contract_type = :ct"); params['ct'] = contract_type
     if team:
         where.append("ps.team = :team"); params['team'] = team
 
-    ps_rows = conn.execute(f"""
-        SELECT ps.name, ps.team, MIN(ps.season) AS first_season,
-               MAX(ps.season) AS last_season, COUNT(*) AS seasons,
+    # Fetch all individual seasons (not pre-grouped) so we can parse each row's term
+    all_rows = conn.execute(f"""
+        SELECT ps.name, ps.team, ps.season, ps.salary,
                ps.position, ps.contract_type, ps.ml_service,
-               ps.contract_notes, ps.is_international
+               ps.contract_notes, ps.is_international, ps.agent
         FROM player_salaries ps
         WHERE {" AND ".join(where)}
-        GROUP BY ps.name, ps.team, ps.contract_type
-        HAVING COUNT(*) >= :mn
-        LIMIT :lim
-    """, {**params, 'mn': min_years, 'lim': limit}).fetchall()
+        ORDER BY ps.name, ps.team, ps.season
+    """, params).fetchall()
 
     market_rates = {r[0]: r[1] for r in conn.execute(
         "SELECT season, dollars_per_war FROM market_rates WHERE dollars_per_war IS NOT NULL"
     ).fetchall()}
 
+    # Group by (name, team, t_start, t_end) — one row per distinct contract term
+    from collections import defaultdict
+    groups = defaultdict(list)  # (name, team, ctype, t_start, t_end) -> [season_rows]
+    ungrouped = defaultdict(list)  # (name, team, ctype) -> [rows without parseable term]
+
+    for r in all_rows:
+        r = dict(r)
+        yrs, total_val, t_start, t_end = _parse_contract_notes(r.get('contract_notes'))
+        if t_start and t_end:
+            key = (r['name'], r['team'], r['contract_type'], t_start, t_end)
+            groups[key].append((r, yrs, total_val, t_start, t_end))
+        else:
+            # No parseable term — group by (name, team, season) as 1-yr stints
+            key = (r['name'], r['team'], r['contract_type'], r['season'], r['season'])
+            groups[key].append((r, yrs, total_val, r['season'], r['season']))
+
+    # Build a set of all (name, team) contract terms so we can detect voiding
+    # A contract is voided if another contract for same player/team starts before it ends
+    contracts_by_player = defaultdict(list)  # (name, team) -> [(t_start, t_end)]
+    for (name, team_abbr, ctype, t_start, t_end) in groups:
+        if t_start and t_end:
+            contracts_by_player[(name, team_abbr)].append((t_start, t_end))
+
     results = []
-    for ps in ps_rows:
-        ps = dict(ps)
-        pos = (ps.get('position') or '').lower().strip()
+    for (name, team_abbr, ctype, t_start, t_end), season_rows in groups.items():
+        if len(season_rows) < min_years: continue
+
+        ps_sample = season_rows[0][0]
+        pos = (ps_sample.get('position') or '').lower().strip()
         pg  = POS_MAP.get(pos, pos.upper() if pos else None)
-        if position_group and pg != position_group:
-            continue
+        if position_group and pg != position_group: continue
 
-        notes = ps.get('contract_notes') or ''
-        yrs, total_val, t_start, t_end = _parse_contract_notes(notes)
-        observed = ps['last_season'] - ps['first_season'] + 1
-        eff_yrs  = yrs if (yrs and yrs >= observed) else observed
-        pre_arb, arb, fa_y = _service_buckets(ps.get('ml_service'), eff_yrs)
+        yrs       = season_rows[0][1]
+        total_val = season_rows[0][2]
+        first_s   = min(r[0]['season'] for r in season_rows)
+        last_s    = max(r[0]['season'] for r in season_rows)
+        observed  = last_s - first_s + 1
+        mls_str   = ps_sample.get('ml_service')
 
-        signing_rate = market_rates.get(t_start or ps['first_season']) or \
-                       market_rates.get((t_start or ps['first_season']) - 1)
+        # AAV from original contract terms
+        aav = round(total_val / yrs) if total_val and yrs else None
 
-        # Sum WAR across all seasons
-        # Use contract term window (t_start/t_end) when available — prevents
-        # pulling WAR from adjacent contracts on same team with same type
-        war_start = t_start if t_start else ps['first_season']
-        war_end   = t_end   if t_end   else ps['last_season']
+        # Detect voiding: another contract for this player/team starts before this one ends
+        other_terms = [t for t in contracts_by_player[(name, team_abbr)]
+                       if t != (t_start, t_end)]
+        voided = any(t_start < other_t_start <= (t_end or 9999)
+                     for other_t_start, _ in other_terms
+                     if other_t_start and (t_end or 0) > 0)
+
+        # Effective years: what was actually served under this specific deal
+        eff_yrs = observed
+        # Scale guarantee to what was actually paid out (AAV × seasons served)
+        effective_guarantee = aav * eff_yrs if aav and voided else total_val
+
+        pre_arb, arb, fa_y = _service_buckets(mls_str, eff_yrs)
+        signing_rate = market_rates.get(t_start or first_s) or                        market_rates.get((t_start or first_s) - 1)
+
+        # WAR: constrained to seasons in this contract group
+        war_start = t_start or first_s
+        war_end   = last_s  # only seasons we have in this group
         war_row = conn.execute("""
             SELECT COALESCE(SUM(season_war), 0) AS war FROM (
+                SELECT season,
+                    CASE WHEN bat_war > 1.5 AND pit_war > 1.5
+                         THEN bat_war + pit_war
+                         ELSE MAX(bat_war, pit_war) END AS season_war
+                FROM (
                     SELECT season,
-                        CASE
-                            WHEN bat_war > 1.5 AND pit_war > 1.5
-                            THEN bat_war + pit_war   -- genuine two-way player (Ohtani): sum both
-                            ELSE MAX(bat_war, pit_war) -- pitcher or hitter: take larger, avoid double-count
-                        END AS season_war
+                        COALESCE(MAX(CASE WHEN src='bat' THEN bwar END), 0) AS bat_war,
+                        COALESCE(MAX(CASE WHEN src='pit' THEN bwar END), 0) AS pit_war
                     FROM (
-                        SELECT season,
-                            COALESCE(MAX(CASE WHEN src='bat' THEN bwar END), 0) AS bat_war,
-                            COALESCE(MAX(CASE WHEN src='pit' THEN bwar END), 0) AS pit_war
-                        FROM (
-                            SELECT season, 'bat' AS src, COALESCE(bwar,0) AS bwar
-                                FROM batting  WHERE name=? AND season BETWEEN ? AND ?
-                            UNION ALL
-                            SELECT season, 'pit' AS src, COALESCE(bwar,0) AS bwar
-                                FROM pitching WHERE name=? AND season BETWEEN ? AND ?
-                        ) GROUP BY season
-                    )
+                        SELECT season, 'bat' AS src, COALESCE(bwar,0) AS bwar
+                            FROM batting  WHERE name=? AND season BETWEEN ? AND ?
+                        UNION ALL
+                        SELECT season, 'pit' AS src, COALESCE(bwar,0) AS bwar
+                            FROM pitching WHERE name=? AND season BETWEEN ? AND ?
+                    ) GROUP BY season
                 )
-        """, (ps['name'], war_start, war_end,
-              ps['name'], war_start, war_end)).fetchone()
+            )
+        """, (name, war_start, war_end, name, war_start, war_end)).fetchone()
         total_war = float(war_row['war']) if war_row else 0.0
 
-        total_salary = conn.execute(
-            "SELECT COALESCE(SUM(salary),0) FROM player_salaries "
-            "WHERE name=? AND team=? AND contract_type=?",
-            (ps['name'], ps['team'], ps['contract_type'])
-        ).fetchone()[0]
+        total_salary = sum(r[0].get('salary') or 0 for r in season_rows)
 
         fa_surplus = None
         if signing_rate and total_salary:
@@ -1119,19 +1152,20 @@ def _ext_surplus_rows(conn, current_rate, team="", era_start=0, era_end=9999,
         if fa_surplus is not None and signing_rate and current_rate:
             adj_surplus = round(fa_surplus * (current_rate / signing_rate))
 
-        aav = round(total_val / yrs) if total_val and yrs else None
-
         results.append({
-            "name":                  ps['name'],
-            "canonical_name":        ps['name'],
-            "signing_class":         t_start or ps['first_season'],
-            "position":              ps.get('position'),
+            "name":                  name,
+            "canonical_name":        name,
+            "signing_class":         t_start or first_s,
+            "position":              ps_sample.get('position'),
             "position_group":        pg,
-            "new_team":              ps['team'],
+            "new_team":              team_abbr,
             "age_at_signing":        None,
             "years":                 eff_yrs,
+            "original_years":        yrs,
             "aav":                   aav,
-            "guarantee":             total_val,
+            "guarantee":             effective_guarantee,
+            "original_guarantee":    total_val,
+            "contract_voided":       voided,
             "term_start":            t_start,
             "term_end":              t_end,
             "contract_status":       "active" if (t_end or 0) >= 2026 else "complete",
@@ -1140,7 +1174,7 @@ def _ext_surplus_rows(conn, current_rate, team="", era_start=0, era_end=9999,
             "expected_surplus":      None,
             "market_rate_at_signing": signing_rate,
             "realized_market_value": round(total_war * signing_rate) if signing_rate else None,
-            "contract_type":         ps['contract_type'],
+            "contract_type":         ctype,
             "has_deferral":          0,
             "cbt_aav":               None,
             "pre_arb_years":         pre_arb,
@@ -1149,7 +1183,10 @@ def _ext_surplus_rows(conn, current_rate, team="", era_start=0, era_end=9999,
             "inflation_adj_surplus": adj_surplus,
             "current_market_rate":   current_rate,
         })
+
+    results = results[:limit]
     return results
+
 
 
 @app.get("/economics/market-rates")
@@ -1841,8 +1878,12 @@ def economics_extension_surplus(
             "first_season": first_s, "last_season": last_s,
             "seasons_in_db": ps['seasons'],
             "contract_notes": notes,
-            "years": eff_yrs, "guarantee": total_val,
-            "aav": round(total_val/yrs) if total_val and yrs else None,
+            "years":             eff_yrs,
+            "aav":               round(total_val/yrs) if total_val and yrs else None,
+            "guarantee":         round(total_val/yrs * eff_yrs) if total_val and yrs else total_val,
+            "original_years":    yrs,
+            "original_guarantee": total_val,
+            "contract_voided":   (t_end is not None and last_s < t_end and yrs is not None and eff_yrs < yrs),
             "pre_arb_years": pre_arb_y, "arb_years": arb_y, "fa_years": fa_y,
             "pct_fa_years": round(fa_y/eff_yrs*100,1) if eff_yrs and fa_y is not None else None,
             "ml_service": mls_str,
