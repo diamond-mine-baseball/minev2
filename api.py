@@ -1065,11 +1065,24 @@ def _ext_surplus_rows(conn, current_rate, team="", era_start=0, era_end=9999,
         war_end   = t_end   if t_end   else ps['last_season']
         war_row = conn.execute("""
             SELECT COALESCE(SUM(season_war), 0) AS war FROM (
-                    SELECT season, MAX(bwar) AS season_war FROM (
-                        SELECT season, COALESCE(bwar,0) AS bwar FROM batting  WHERE name=? AND season BETWEEN ? AND ?
-                        UNION ALL
-                        SELECT season, COALESCE(bwar,0) AS bwar FROM pitching WHERE name=? AND season BETWEEN ? AND ?
-                    ) GROUP BY season
+                    SELECT season,
+                        CASE
+                            WHEN bat_war > 1.5 AND pit_war > 1.5
+                            THEN bat_war + pit_war   -- genuine two-way player (Ohtani): sum both
+                            ELSE MAX(bat_war, pit_war) -- pitcher or hitter: take larger, avoid double-count
+                        END AS season_war
+                    FROM (
+                        SELECT season,
+                            COALESCE(MAX(CASE WHEN src='bat' THEN bwar END), 0) AS bat_war,
+                            COALESCE(MAX(CASE WHEN src='pit' THEN bwar END), 0) AS pit_war
+                        FROM (
+                            SELECT season, 'bat' AS src, COALESCE(bwar,0) AS bwar
+                                FROM batting  WHERE name=? AND season BETWEEN ? AND ?
+                            UNION ALL
+                            SELECT season, 'pit' AS src, COALESCE(bwar,0) AS bwar
+                                FROM pitching WHERE name=? AND season BETWEEN ? AND ?
+                        ) GROUP BY season
+                    )
                 )
         """, (ps['name'], war_start, war_end,
               ps['name'], war_start, war_end)).fetchone()
@@ -1529,11 +1542,24 @@ def economics_extension_surplus(
         war_end   = t_end   if t_end   else last_s
         war_row = conn.execute("""
             SELECT COALESCE(SUM(season_war), 0) AS war FROM (
-                    SELECT season, MAX(bwar) AS season_war FROM (
-                        SELECT season, COALESCE(bwar,0) AS bwar FROM batting  WHERE name=? AND season BETWEEN ? AND ?
-                        UNION ALL
-                        SELECT season, COALESCE(bwar,0) AS bwar FROM pitching WHERE name=? AND season BETWEEN ? AND ?
-                    ) GROUP BY season
+                    SELECT season,
+                        CASE
+                            WHEN bat_war > 1.5 AND pit_war > 1.5
+                            THEN bat_war + pit_war   -- genuine two-way player (Ohtani): sum both
+                            ELSE MAX(bat_war, pit_war) -- pitcher or hitter: take larger, avoid double-count
+                        END AS season_war
+                    FROM (
+                        SELECT season,
+                            COALESCE(MAX(CASE WHEN src='bat' THEN bwar END), 0) AS bat_war,
+                            COALESCE(MAX(CASE WHEN src='pit' THEN bwar END), 0) AS pit_war
+                        FROM (
+                            SELECT season, 'bat' AS src, COALESCE(bwar,0) AS bwar
+                                FROM batting  WHERE name=? AND season BETWEEN ? AND ?
+                            UNION ALL
+                            SELECT season, 'pit' AS src, COALESCE(bwar,0) AS bwar
+                                FROM pitching WHERE name=? AND season BETWEEN ? AND ?
+                        ) GROUP BY season
+                    )
                 )
         """, (ps['name'], war_start, war_end,
               ps['name'], war_start, war_end)).fetchone()
@@ -1555,11 +1581,21 @@ def economics_extension_surplus(
         for sr in seasons_list:
             yr = sr[0]
             war_s = conn.execute("""
-                SELECT COALESCE(MAX(bwar),0) AS w FROM (
-                    SELECT COALESCE(bwar,0) AS bwar FROM batting  WHERE name=? AND season=?
-                    UNION ALL
-                    SELECT COALESCE(bwar,0) AS bwar FROM pitching WHERE name=? AND season=?
-                )
+                SELECT
+                        CASE
+                            WHEN bat_war > 1.5 AND pit_war > 1.5 THEN bat_war + pit_war
+                            ELSE MAX(bat_war, pit_war)
+                        END AS w
+                    FROM (
+                        SELECT
+                            COALESCE(MAX(CASE WHEN src='bat' THEN bwar END), 0) AS bat_war,
+                            COALESCE(MAX(CASE WHEN src='pit' THEN bwar END), 0) AS pit_war
+                        FROM (
+                            SELECT 'bat' AS src, COALESCE(bwar,0) AS bwar FROM batting  WHERE name=? AND season=?
+                            UNION ALL
+                            SELECT 'pit' AS src, COALESCE(bwar,0) AS bwar FROM pitching WHERE name=? AND season=?
+                        )
+                    )
             """, (ps['name'],yr,ps['name'],yr)).fetchone()
             yr_war = float(war_s['w']) if war_s else 0.0
             if cur_mls < 3.0:   tiered_value += yr_war * (signing_rate * 0.20)
