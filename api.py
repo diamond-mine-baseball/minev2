@@ -959,9 +959,6 @@ def _compute_pitcher_sdi(conn, current, season):
     }
 
 
-
-
-
 if __name__ == "__main__":
     import uvicorn
     port = int(_os.getenv("PORT", 5001))
@@ -981,16 +978,13 @@ import re as _re
 from collections import defaultdict as _defaultdict
 
 def _parse_contract_notes(notes):
-    if not notes:
-        return None, None, None, None
+    if not notes: return None, None, None, None
     s = str(notes)
     years = total = t_start = t_end = None
     m = _re.search(r'(\d+)\s*(?:yr|y(?:ear)?)(?!\w)', s, _re.I)
-    if m:
-        years = int(m.group(1))
+    if m: years = int(m.group(1))
     m = _re.search(r'\$\s*(\d+(?:\.\d+)?)\s*[Mm]', s)
-    if m:
-        total = float(m.group(1)) * 1_000_000
+    if m: total = float(m.group(1)) * 1_000_000
     m = _re.search(r'\((\d{2,4})-(\d{2,4})\)', s)
     if m:
         sy, ey = int(m.group(1)), int(m.group(2))
@@ -1000,12 +994,9 @@ def _parse_contract_notes(notes):
 
 
 def _service_buckets(mls_str, contract_years):
-    if not mls_str or not contract_years:
-        return None, None, None
-    try:
-        mls = float(str(mls_str).strip())
-    except (ValueError, TypeError):
-        return None, None, None
+    if not mls_str or not contract_years: return None, None, None
+    try: mls = float(str(mls_str).strip())
+    except: return None, None, None
     pre_arb = arb = fa = 0
     cur = mls
     for _ in range(int(contract_years)):
@@ -1014,6 +1005,115 @@ def _service_buckets(mls_str, contract_years):
         else:           fa += 1
         cur += 1.0
     return pre_arb, arb, fa
+
+
+def _ext_surplus_rows(conn, current_rate, team="", era_start=0, era_end=9999,
+                      position_group="", contract_type="", min_years=1, limit=200):
+    """Build extension/international rows in leaderboard format."""
+    POS_MAP = {
+        'sp':'SP','rhp-s':'SP','lhp-s':'SP','rp':'RP','lhp':'RP','rhp':'RP',
+        'rhp-r':'RP','lhp-r':'RP','lhp-c':'RP','c':'C','1b':'1B','2b':'2B',
+        '3b':'3B','ss':'SS','lf':'OF','cf':'OF','rf':'OF','of':'OF','dh':'DH',
+    }
+
+    where = ["ps.contract_type IN ('extension','international')",
+             "ps.season BETWEEN :es AND :ee"]
+    params = dict(es=era_start or 2009, ee=era_end or 9999)
+
+    if contract_type in ('extension','international'):
+        where.append("ps.contract_type = :ct"); params['ct'] = contract_type
+    if team:
+        where.append("ps.team = :team"); params['team'] = team
+
+    ps_rows = conn.execute(f"""
+        SELECT ps.name, ps.team, MIN(ps.season) AS first_season,
+               MAX(ps.season) AS last_season, COUNT(*) AS seasons,
+               ps.position, ps.contract_type, ps.ml_service,
+               ps.contract_notes, ps.is_international
+        FROM player_salaries ps
+        WHERE {" AND ".join(where)}
+        GROUP BY ps.name, ps.team, ps.contract_type
+        HAVING COUNT(*) >= :mn
+        LIMIT :lim
+    """, {**params, 'mn': min_years, 'lim': limit}).fetchall()
+
+    market_rates = {r[0]: r[1] for r in conn.execute(
+        "SELECT season, dollars_per_war FROM market_rates WHERE dollars_per_war IS NOT NULL"
+    ).fetchall()}
+
+    results = []
+    for ps in ps_rows:
+        ps = dict(ps)
+        pos = (ps.get('position') or '').lower().strip()
+        pg  = POS_MAP.get(pos, pos.upper() if pos else None)
+        if position_group and pg != position_group:
+            continue
+
+        notes = ps.get('contract_notes') or ''
+        yrs, total_val, t_start, t_end = _parse_contract_notes(notes)
+        observed = ps['last_season'] - ps['first_season'] + 1
+        eff_yrs  = yrs if (yrs and yrs >= observed) else observed
+        pre_arb, arb, fa_y = _service_buckets(ps.get('ml_service'), eff_yrs)
+
+        signing_rate = market_rates.get(t_start or ps['first_season']) or \
+                       market_rates.get((t_start or ps['first_season']) - 1)
+
+        # Sum WAR across all seasons
+        war_row = conn.execute("""
+            SELECT COALESCE(SUM(w),0) AS war FROM (
+                SELECT bwar AS w FROM batting  WHERE name=? AND season BETWEEN ? AND ?
+                UNION ALL
+                SELECT COALESCE(bwar,0) AS w FROM pitching WHERE name=? AND season BETWEEN ? AND ?
+            )
+        """, (ps['name'], ps['first_season'], ps['last_season'],
+              ps['name'], ps['first_season'], ps['last_season'])).fetchone()
+        total_war = float(war_row['war']) if war_row else 0.0
+
+        total_salary = conn.execute(
+            "SELECT COALESCE(SUM(salary),0) FROM player_salaries "
+            "WHERE name=? AND team=? AND contract_type=?",
+            (ps['name'], ps['team'], ps['contract_type'])
+        ).fetchone()[0]
+
+        fa_surplus = None
+        if signing_rate and total_salary:
+            fa_surplus = round(total_war * signing_rate - total_salary)
+
+        adj_surplus = None
+        if fa_surplus is not None and signing_rate and current_rate:
+            adj_surplus = round(fa_surplus * (current_rate / signing_rate))
+
+        aav = round(total_val / yrs) if total_val and yrs else None
+
+        results.append({
+            "name":                  ps['name'],
+            "canonical_name":        ps['name'],
+            "signing_class":         t_start or ps['first_season'],
+            "position":              ps.get('position'),
+            "position_group":        pg,
+            "new_team":              ps['team'],
+            "age_at_signing":        None,
+            "years":                 eff_yrs,
+            "aav":                   aav,
+            "guarantee":             total_val,
+            "term_start":            t_start,
+            "term_end":              t_end,
+            "contract_status":       "active" if (t_end or 0) >= 2026 else "complete",
+            "total_realized_war":    round(total_war, 1),
+            "realized_surplus":      fa_surplus,
+            "expected_surplus":      None,
+            "market_rate_at_signing": signing_rate,
+            "realized_market_value": round(total_war * signing_rate) if signing_rate else None,
+            "contract_type":         ps['contract_type'],
+            "has_deferral":          0,
+            "cbt_aav":               None,
+            "pre_arb_years":         pre_arb,
+            "arb_years":             arb,
+            "fa_years":              fa_y,
+            "inflation_adj_surplus": adj_surplus,
+            "current_market_rate":   current_rate,
+        })
+    return results
 
 
 @app.get("/economics/market-rates")
@@ -1040,74 +1140,96 @@ def economics_leaderboard(
     limit: int          = Query(200),
 ):
     conn = get_db()
-    where  = ["cv.realized_surplus IS NOT NULL",
-              "cv.years >= :min_years",
-              "cv.signing_class BETWEEN :era_start AND :era_end"]
-    params = dict(min_years=min_years, era_start=era_start, era_end=era_end)
-    if position_group:
-        where.append("cv.position_group = :position_group")
-        params["position_group"] = position_group
-    if status:
-        where.append("cv.contract_status = :status")
-        params["status"] = status
-    if team:
-        where.append("cv.new_team = :team")
-        params["team"] = team
-    if contract_type:
-        where.append("COALESCE(c.contract_type,'fa') = :contract_type")
-        params["contract_type"] = contract_type
-
-    # SQL-sortable columns (inflation_adj_surplus computed in Python, handled below)
-    sql_valid = {"realized_surplus","expected_surplus","total_realized_war",
-                 "aav","guarantee","signing_class","years"}
-    sort_in_sql = sort_by in sql_valid
-    sql_col     = sort_by if sort_in_sql else "realized_surplus"
-    direction   = "ASC" if order.lower() == "asc" else "DESC"
-
     latest = conn.execute(
         "SELECT dollars_per_war FROM market_rates "
         "WHERE dollars_per_war IS NOT NULL ORDER BY season DESC LIMIT 1"
     ).fetchone()
     current_rate = latest[0] if latest else None
 
-    rows = conn.execute(f"""
-        SELECT cv.name, cv.canonical_name, cv.signing_class, cv.position,
-               cv.position_group, cv.new_team, cv.age_at_signing, cv.years,
-               cv.aav, cv.guarantee, cv.term_start, cv.term_end,
-               cv.contract_status, cv.total_realized_war,
-               cv.realized_surplus, cv.expected_surplus,
-               cv.market_rate_at_signing, cv.realized_market_value,
-               COALESCE(c.contract_type,'fa') AS contract_type,
-               COALESCE(c.has_deferral,0)     AS has_deferral,
-               c.cbt_aav, c.pre_arb_years, c.arb_years, c.fa_years
-        FROM contract_valuations cv
-        LEFT JOIN contracts c ON c.name = cv.name
-                              AND c.signing_class = cv.signing_class
-                              AND c.new_team = cv.new_team
-        WHERE {" AND ".join(where)}
-        ORDER BY cv.{sql_col} {direction}
-        LIMIT :limit
-    """, {**params, "limit": limit}).fetchall()
+    ext_types = {"extension", "international"}
+    want_ext = (not contract_type) or contract_type in ext_types
+    want_fa  = (not contract_type) or contract_type in {"fa", "trade"}
 
-    result = []
-    for r in rows:
-        d = dict(r)
-        if current_rate and d.get("realized_surplus") is not None and d.get("market_rate_at_signing"):
-            scaling = current_rate / d["market_rate_at_signing"]
-            d["inflation_adj_surplus"] = round(d["realized_surplus"] * scaling)
-        else:
-            d["inflation_adj_surplus"] = None
-        d["current_market_rate"] = current_rate
-        result.append(d)
+    # ── FA contracts from contract_valuations ─────────────────────────────────
+    fa_result = []
+    if want_fa:
+        where  = ["cv.realized_surplus IS NOT NULL",
+                  "cv.years >= :min_years",
+                  "cv.signing_class BETWEEN :era_start AND :era_end"]
+        params = dict(min_years=min_years, era_start=era_start, era_end=era_end)
+        if position_group:
+            where.append("cv.position_group = :position_group")
+            params["position_group"] = position_group
+        if status:
+            where.append("cv.contract_status = :status"); params["status"] = status
+        if team:
+            where.append("cv.new_team = :team"); params["team"] = team
 
-    # If sorting by inflation_adj_surplus, sort in Python after computing
+        valid  = {"realized_surplus","expected_surplus","total_realized_war",
+                  "aav","guarantee","signing_class","years"}
+        sql_col   = sort_by if sort_by in valid else "realized_surplus"
+        direction = "ASC" if order.lower() == "asc" else "DESC"
+
+        rows = conn.execute(f"""
+            SELECT cv.name, cv.canonical_name, cv.signing_class, cv.position,
+                   cv.position_group, cv.new_team, cv.age_at_signing, cv.years,
+                   cv.aav, cv.guarantee, cv.term_start, cv.term_end,
+                   cv.contract_status, cv.total_realized_war,
+                   cv.realized_surplus, cv.expected_surplus,
+                   cv.market_rate_at_signing, cv.realized_market_value,
+                   COALESCE(c.contract_type,'fa') AS contract_type,
+                   COALESCE(c.has_deferral,0)     AS has_deferral,
+                   c.cbt_aav, c.pre_arb_years, c.arb_years, c.fa_years
+            FROM contract_valuations cv
+            LEFT JOIN contracts c ON c.name = cv.name
+                                  AND c.signing_class = cv.signing_class
+                                  AND c.new_team = cv.new_team
+            WHERE {" AND ".join(where)}
+              AND COALESCE(c.contract_type,'fa') NOT IN ('extension','international')
+            ORDER BY cv.{sql_col} {direction}
+            LIMIT :limit
+        """, {**params, "limit": limit}).fetchall()
+
+        for r in rows:
+            d = dict(r)
+            if current_rate and d.get("realized_surplus") is not None and d.get("market_rate_at_signing"):
+                d["inflation_adj_surplus"] = round(d["realized_surplus"] * (current_rate / d["market_rate_at_signing"]))
+            else:
+                d["inflation_adj_surplus"] = None
+            d["current_market_rate"] = current_rate
+            fa_result.append(d)
+
+    # ── Extensions/international from player_salaries ─────────────────────────
+    ext_result = []
+    if want_ext and (not status or status == ""):
+        ext_result = _ext_surplus_rows(
+            conn, current_rate,
+            team=team, era_start=era_start, era_end=era_end,
+            position_group=position_group,
+            contract_type=contract_type if contract_type in ext_types else "",
+            min_years=min_years, limit=limit,
+        )
+
+    # ── Merge and sort ────────────────────────────────────────────────────────
+    combined = fa_result + ext_result
+
+    sort_key = sort_by if sort_by in {
+        "realized_surplus","inflation_adj_surplus","total_realized_war",
+        "aav","guarantee","signing_class","years"
+    } else "realized_surplus"
+
+    combined.sort(
+        key=lambda x: (x.get(sort_key) is None, x.get(sort_key) or 0),
+        reverse=(order.lower() == "desc")
+    )
+
     if sort_by == "inflation_adj_surplus":
-        result.sort(
-            key=lambda x: (x["inflation_adj_surplus"] is None, x["inflation_adj_surplus"] or 0),
+        combined.sort(
+            key=lambda x: (x.get("inflation_adj_surplus") is None, x.get("inflation_adj_surplus") or 0),
             reverse=(order.lower() == "desc")
         )
 
-    return result
+    return combined[:limit]
 
 
 @app.get("/economics/player")
@@ -1143,13 +1265,12 @@ def economics_team(
     ).fetchone()
     current_rate = latest[0] if latest else None
 
-    valid = {"signing_class","realized_surplus","inflation_adj_surplus",
-             "aav","guarantee","total_realized_war","years"}
-    sort_in_sql = sort_by in valid - {"inflation_adj_surplus"}
-    sql_col   = sort_by if sort_in_sql else "signing_class"
+    # ── FA contracts from contract_valuations ─────────────────────────────────
+    valid_sql = {"signing_class","realized_surplus","aav","guarantee","total_realized_war","years"}
+    sql_col   = sort_by if sort_by in valid_sql else "signing_class"
     direction = "ASC" if order.lower() == "asc" else "DESC"
 
-    rows = conn.execute(f"""
+    fa_rows = conn.execute(f"""
         SELECT cv.name, cv.canonical_name, cv.signing_class, cv.position,
                cv.position_group, cv.age_at_signing, cv.years,
                cv.aav, cv.guarantee, cv.term_start, cv.term_end,
@@ -1157,7 +1278,7 @@ def economics_team(
                cv.realized_surplus, cv.expected_surplus,
                cv.market_rate_at_signing,
                COALESCE(c.contract_type,'fa') AS contract_type,
-               COALESCE(c.has_deferral,0)     AS has_deferral,
+               COALESCE(c.has_deferral,0)      AS has_deferral,
                c.cbt_aav, c.agent
         FROM contract_valuations cv
         LEFT JOIN contracts c ON c.name = cv.name
@@ -1166,40 +1287,55 @@ def economics_team(
         WHERE cv.new_team = :team
           AND cv.signing_class BETWEEN :era_start AND :era_end
           AND cv.realized_surplus IS NOT NULL
+          AND COALESCE(c.contract_type,'fa') NOT IN ('extension','international')
         ORDER BY cv.{sql_col} {direction}
     """, dict(team=team, era_start=era_start, era_end=era_end)).fetchall()
 
     contracts = []
-    for r in rows:
+    for r in fa_rows:
         d = dict(r)
         if current_rate and d.get("realized_surplus") is not None and d.get("market_rate_at_signing"):
             d["inflation_adj_surplus"] = round(d["realized_surplus"] * (current_rate / d["market_rate_at_signing"]))
         else:
             d["inflation_adj_surplus"] = None
+        d["current_market_rate"] = current_rate
         contracts.append(d)
 
-    if sort_by == "inflation_adj_surplus":
-        contracts.sort(
-            key=lambda x: (x["inflation_adj_surplus"] is None, x["inflation_adj_surplus"] or 0),
-            reverse=(order.lower() == "desc")
-        )
+    # ── Extensions + international ────────────────────────────────────────────
+    ext_contracts = _ext_surplus_rows(
+        conn, current_rate,
+        team=team, era_start=era_start, era_end=era_end,
+        min_years=1, limit=500,
+    )
+    # Only include extensions that have surplus data (signing_rate found)
+    ext_contracts = [e for e in ext_contracts if e.get("realized_surplus") is not None]
+    contracts.extend(ext_contracts)
 
-    total_spent   = sum(r["guarantee"]          or 0 for r in contracts)
-    total_surplus = sum(r["realized_surplus"]   or 0 for r in contracts)
-    total_adj     = sum(r["inflation_adj_surplus"] or 0 for r in contracts if r["inflation_adj_surplus"])
-    total_war     = sum(r["total_realized_war"]  or 0 for r in contracts)
-    wins          = sum(1 for r in contracts if (r["realized_surplus"] or 0) > 0)
+    # ── Sort merged list ──────────────────────────────────────────────────────
+    valid_sort = {"signing_class","realized_surplus","inflation_adj_surplus",
+                  "aav","guarantee","total_realized_war","years"}
+    sk = sort_by if sort_by in valid_sort else "signing_class"
+    contracts.sort(
+        key=lambda x: (x.get(sk) is None, x.get(sk) or 0),
+        reverse=(order.lower() == "desc")
+    )
+
+    total_spent   = sum(r.get("guarantee")          or 0 for r in contracts)
+    total_surplus = sum(r.get("realized_surplus")   or 0 for r in contracts)
+    total_adj     = sum(r.get("inflation_adj_surplus") or 0 for r in contracts if r.get("inflation_adj_surplus"))
+    total_war     = sum(r.get("total_realized_war")  or 0 for r in contracts)
+    wins          = sum(1 for r in contracts if (r.get("realized_surplus") or 0) > 0)
 
     return {
         "team": team, "era_start": era_start, "era_end": era_end,
         "total_contracts": len(contracts),
-        "total_spent":           total_spent,
-        "total_surplus":         total_surplus,
+        "total_spent":                 total_spent,
+        "total_surplus":               total_surplus,
         "total_inflation_adj_surplus": total_adj,
-        "total_war":             total_war,
+        "total_war":                   total_war,
         "win_rate": round(wins / len(contracts) * 100, 1) if contracts else 0,
-        "current_market_rate":   current_rate,
-        "contracts":             contracts,
+        "current_market_rate": current_rate,
+        "contracts": contracts,
     }
 
 
@@ -1236,53 +1372,43 @@ def economics_extensions(
     era_start: int      = Query(2009),
     era_end: int        = Query(9999),
     position_group: str = Query(""),
-    sort_by: str        = Query("salary"),
+    sort_by: str        = Query("aav"),
     order: str          = Query("desc"),
 ):
-    """Extensions and international signings, deduped by (name, team)."""
     conn = get_db()
-
     POS_MAP = {
-        'sp':'SP','rhp-s':'SP','lhp-s':'SP',
-        'rp':'RP','lhp':'RP','rhp':'RP','rhp-r':'RP','lhp-r':'RP','lhp-c':'RP',
-        'c':'C','1b':'1B','2b':'2B','3b':'3B','ss':'SS',
-        'lf':'OF','cf':'OF','rf':'OF','of':'OF',
-        'dh':'DH','util':'UTIL',
+        'sp':'SP','rhp-s':'SP','lhp-s':'SP','rp':'RP','lhp':'RP','rhp':'RP',
+        'rhp-r':'RP','lhp-r':'RP','lhp-c':'RP','c':'C','1b':'1B','2b':'2B',
+        '3b':'3B','ss':'SS','lf':'OF','cf':'OF','rf':'OF','of':'OF','dh':'DH',
     }
     PG_POS = {
-        'SP':['sp','rhp-s','lhp-s'], 'RP':['rp','lhp','rhp','rhp-r','lhp-r','lhp-c'],
-        'C':['c'], '1B':['1b'], '2B':['2b'], '3B':['3b'], 'SS':['ss'],
-        'OF':['lf','cf','rf','of'], 'DH':['dh'],
+        'SP':['sp','rhp-s','lhp-s'],'RP':['rp','lhp','rhp','rhp-r','lhp-r','lhp-c'],
+        'C':['c'],'1B':['1b'],'2B':['2b'],'3B':['3b'],'SS':['ss'],
+        'OF':['lf','cf','rf','of'],'DH':['dh'],
     }
-
     where  = ["ps.contract_type IN ('extension','international')",
               "ps.season BETWEEN :era_start AND :era_end"]
     params: dict = dict(era_start=era_start, era_end=era_end)
-
     if team:
         where.append("ps.team = :team"); params["team"] = team
     if position_group:
         pos_list = PG_POS.get(position_group.upper(), [position_group.lower()])
         phs = ",".join(f":pos{i}" for i in range(len(pos_list)))
         where.append(f"LOWER(ps.position) IN ({phs})")
-        for i, p in enumerate(pos_list):
-            params[f"pos{i}"] = p
+        for i, p in enumerate(pos_list): params[f"pos{i}"] = p
 
-    col = "MAX(ps.salary)" if sort_by == "salary" else "MIN(ps.season)"
+    col = "MAX(ps.salary)" if sort_by == "season" else "MAX(ps.salary)"
     direction = "ASC" if order.lower() == "asc" else "DESC"
 
     rows = conn.execute(f"""
         SELECT ps.name, ps.team,
-               MIN(ps.season)  AS first_season,
-               MAX(ps.season)  AS last_season,
-               COUNT(*)        AS seasons_in_db,
+               MIN(ps.season) AS first_season, MAX(ps.season) AS last_season,
+               COUNT(*)       AS seasons_in_db,
                ps.position, ps.contract_type, ps.ml_service,
                ps.age, ps.agent, ps.is_international,
-               MAX(ps.salary)  AS salary,
-               -- Pick the contract_notes with the longest year span (most informative)
+               MAX(ps.salary) AS salary,
                (SELECT cn.contract_notes FROM player_salaries cn
-                WHERE cn.name = ps.name AND cn.team = ps.team
-                  AND cn.contract_type = ps.contract_type
+                WHERE cn.name=ps.name AND cn.team=ps.team AND cn.contract_type=ps.contract_type
                 ORDER BY LENGTH(cn.contract_notes) DESC LIMIT 1) AS contract_notes
         FROM player_salaries ps
         WHERE {" AND ".join(where)}
@@ -1296,27 +1422,24 @@ def economics_extensions(
         d = dict(r)
         pos = (d.get('position') or '').lower().strip()
         d['position_group'] = POS_MAP.get(pos, pos.upper() if pos else None)
-
         yrs, total, t_start, t_end = _parse_contract_notes(d.get('contract_notes'))
-        seasons_in_db = d.get('seasons_in_db') or 1
-        # If parsed years < observed seasons, use observed span as the authoritative count
-        # (happens for arb players where each season has a 1yr contract note)
-        observed_span = (d.get('last_season') or d.get('first_season') or 0) - (d.get('first_season') or 0) + 1
-        effective_yrs = yrs if (yrs and yrs >= observed_span) else observed_span
-        d['years']        = effective_yrs
-        d['seasons_in_db']= seasons_in_db
+        observed = (d.get('last_season') or 0) - (d.get('first_season') or 0) + 1
+        eff_yrs  = yrs if (yrs and yrs >= observed) else observed
+        d['years']        = eff_yrs
         d['guarantee']    = total
         d['aav']          = round(total / yrs) if total and yrs else None
         d['term_start']   = t_start
         d['term_end']     = t_end
-
-        pre_arb, arb, fa = _service_buckets(d.get('ml_service'), effective_yrs)
+        pre_arb, arb, fa = _service_buckets(d.get('ml_service'), eff_yrs)
         d['pre_arb_years'] = pre_arb
         d['arb_years']     = arb
         d['fa_years']      = fa
-        d['pct_fa_years']  = round(fa / effective_yrs * 100, 1) if effective_yrs and fa is not None else None
-
+        d['pct_fa_years']  = round(fa/eff_yrs*100,1) if eff_yrs and fa is not None else None
         result.append(d)
+
+    if sort_by == 'aav':
+        result.sort(key=lambda x: (x.get('aav') is None, x.get('aav') or 0),
+                    reverse=(order.lower()=='desc'))
     return result
 
 
@@ -1330,13 +1453,7 @@ def economics_extension_surplus(
     order: str          = Query("desc"),
     min_seasons: int    = Query(2),
 ):
-    """
-    Compute surplus for extensions vs two FA counterfactuals:
-      fa_rate_surplus  — all WAR valued at signing-year FA $/WAR
-      tiered_surplus   — pre-arb at league min, arb at 50% FA rate, FA years at full rate
-    """
     conn = get_db()
-
     LG_MIN = {
         2009:400000,2010:400000,2011:414000,2012:480000,2013:490000,
         2014:500000,2015:507500,2016:507500,2017:535000,2018:545000,
@@ -1344,10 +1461,9 @@ def economics_extension_surplus(
         2024:740000,2025:760000,2026:780000,
     }
     POS_MAP = {
-        'sp':'SP','rhp-s':'SP','lhp-s':'SP',
-        'rp':'RP','lhp':'RP','rhp':'RP','rhp-r':'RP','lhp-r':'RP','lhp-c':'RP',
-        'c':'C','1b':'1B','2b':'2B','3b':'3B','ss':'SS',
-        'lf':'OF','cf':'OF','rf':'OF','of':'OF','dh':'DH','util':'UTIL',
+        'sp':'SP','rhp-s':'SP','lhp-s':'SP','rp':'RP','lhp':'RP','rhp':'RP',
+        'rhp-r':'RP','lhp-r':'RP','lhp-c':'RP','c':'C','1b':'1B','2b':'2B',
+        '3b':'3B','ss':'SS','lf':'OF','cf':'OF','rf':'OF','of':'OF','dh':'DH',
     }
     PG_POS = {
         'SP':['sp','rhp-s','lhp-s'],'RP':['rp','lhp','rhp','rhp-r','lhp-r','lhp-c'],
@@ -1357,7 +1473,7 @@ def economics_extension_surplus(
 
     where  = ["ps.contract_type IN ('extension','international')",
               "ps.season BETWEEN :era_start AND :era_end"]
-    params = dict(era_start=era_start, era_end=era_end)
+    params: dict = dict(era_start=era_start, era_end=era_end)
     if team:
         where.append("ps.team = :team"); params["team"] = team
     if position_group:
@@ -1367,124 +1483,103 @@ def economics_extension_surplus(
         for i, p in enumerate(pos_list): params[f"pos{i}"] = p
 
     ps_rows = conn.execute(f"""
-        SELECT ps.name, ps.team, ps.season, ps.salary,
+        SELECT ps.name, ps.team, MIN(ps.season) AS first_season,
+               MAX(ps.season) AS last_season, COUNT(*) AS seasons,
                ps.position, ps.contract_type, ps.ml_service,
-               ps.agent, ps.contract_notes, ps.is_international
+               ps.contract_notes, ps.is_international
         FROM player_salaries ps
         WHERE {" AND ".join(where)}
-        ORDER BY ps.name, ps.team, ps.season
-    """, params).fetchall()
+        GROUP BY ps.name, ps.team, ps.contract_type
+        HAVING COUNT(*) >= :mn
+    """, {**params, 'mn': min_seasons}).fetchall()
 
     market_rates = {r[0]: r[1] for r in conn.execute(
         "SELECT season, dollars_per_war FROM market_rates WHERE dollars_per_war IS NOT NULL"
     ).fetchall()}
-
     latest_rate = conn.execute(
         "SELECT dollars_per_war FROM market_rates WHERE dollars_per_war IS NOT NULL ORDER BY season DESC LIMIT 1"
     ).fetchone()
     current_rate = latest_rate[0] if latest_rate else None
 
-    groups = _defaultdict(list)
-    for r in ps_rows:
-        groups[(r["name"], r["team"], r["contract_type"])].append(dict(r))
-
     result = []
-    for (name, team_abbr, ctype), seasons in groups.items():
-        if len(seasons) < min_seasons:
-            continue
-        seasons.sort(key=lambda x: x["season"])
-        first_season = seasons[0]["season"]
-        last_season  = seasons[-1]["season"]
-        notes        = seasons[0].get("contract_notes") or ""
-        pos          = (seasons[0].get("position") or "").lower().strip()
-        mls_str      = seasons[0].get("ml_service")
+    for ps in ps_rows:
+        ps = dict(ps)
+        pos = (ps.get('position') or '').lower().strip()
+        pg  = POS_MAP.get(pos, pos.upper() if pos else None)
+        if position_group and pg != position_group: continue
 
-        yrs, total, t_start, t_end = _parse_contract_notes(notes)
-        observed_span = last_season - first_season + 1
-        effective_yrs = yrs if (yrs and yrs >= observed_span) else observed_span
-        pre_arb_yrs, arb_yrs, fa_yrs = _service_buckets(mls_str, effective_yrs)
-        signing_rate = market_rates.get(first_season) or market_rates.get(first_season - 1)
-        if not signing_rate:
-            continue
+        notes     = ps.get('contract_notes') or ''
+        mls_str   = ps.get('ml_service')
+        first_s   = ps['first_season']
+        last_s    = ps['last_season']
+        yrs, total_val, t_start, t_end = _parse_contract_notes(notes)
+        observed  = last_s - first_s + 1
+        eff_yrs   = yrs if (yrs and yrs >= observed) else observed
+        pre_arb_y, arb_y, fa_y = _service_buckets(mls_str, eff_yrs)
+        signing_rate = market_rates.get(t_start or first_s) or market_rates.get((t_start or first_s)-1)
+        if not signing_rate: continue
 
-        # Fetch WAR per season using safe UNION ALL approach (avoids cross-join issues)
-        war_by_season = {}
-        for s in seasons:
-            yr = s["season"]
-            row = conn.execute("""
-                SELECT COALESCE(SUM(w), 0) as w FROM (
-                    SELECT bwar as w FROM batting  WHERE name=? AND season=?
+        war_row = conn.execute("""
+            SELECT COALESCE(SUM(w),0) AS war FROM (
+                SELECT bwar AS w FROM batting  WHERE name=? AND season BETWEEN ? AND ?
+                UNION ALL
+                SELECT COALESCE(bwar,0) AS w FROM pitching WHERE name=? AND season BETWEEN ? AND ?
+            )
+        """, (ps['name'],first_s,last_s,ps['name'],first_s,last_s)).fetchone()
+        total_war = float(war_row['war']) if war_row else 0.0
+
+        total_salary = conn.execute(
+            "SELECT COALESCE(SUM(salary),0) FROM player_salaries WHERE name=? AND team=? AND contract_type=?",
+            (ps['name'], ps['team'], ps['contract_type'])
+        ).fetchone()[0]
+        if total_salary == 0: continue
+
+        fa_surplus     = round(total_war * signing_rate - total_salary)
+        tiered_value   = 0.0
+        cur_mls        = float(mls_str or 0)
+        seasons_list   = conn.execute(
+            "SELECT season FROM player_salaries WHERE name=? AND team=? AND contract_type=? ORDER BY season",
+            (ps['name'], ps['team'], ps['contract_type'])
+        ).fetchall()
+        for sr in seasons_list:
+            yr = sr[0]
+            war_s = conn.execute("""
+                SELECT COALESCE(SUM(w),0) AS w FROM (
+                    SELECT bwar AS w FROM batting  WHERE name=? AND season=?
                     UNION ALL
-                    SELECT COALESCE(bwar,0) as w FROM pitching WHERE name=? AND season=?
+                    SELECT COALESCE(bwar,0) AS w FROM pitching WHERE name=? AND season=?
                 )
-            """, (name, yr, name, yr)).fetchone()
-            war_by_season[yr] = float(row["w"]) if row and row["w"] is not None else 0.0
-
-        total_war    = sum(war_by_season.values())
-        total_salary = sum(s["salary"] or 0 for s in seasons)
-        if total_salary == 0:
-            continue
-
-        # FA-rate surplus: all WAR at signing-year $/WAR
-        fa_market_value = total_war * signing_rate
-        fa_rate_surplus = round(fa_market_value - total_salary)
-
-        # Tiered surplus: value WAR by service-time tier
-        # For each season: team benefit = WAR * tier_rate, team cost = salary paid
-        tiered_value = 0.0
-        cur_mls = float(mls_str or 0)
-        yrs = effective_yrs  # use corrected years for result dict below
-        for s in seasons:
-            yr_war = war_by_season.get(s["season"], 0)
-            lg_min = LG_MIN.get(s["season"], 740000)
-            if cur_mls < 3.0:
-                tier_rate = lg_min / max(yr_war, 1.0) if yr_war > 0 else 0
-                # Pre-arb: WAR valued at implied rate (lg_min/WAR equivalent)
-                # Simpler: benefit = WAR * (signing_rate * 0.20), cost = salary
-                tiered_value += yr_war * (signing_rate * 0.20)
-            elif cur_mls < 6.0:
-                tiered_value += yr_war * (signing_rate * 0.50)
-            else:
-                tiered_value += yr_war * signing_rate
+            """, (ps['name'],yr,ps['name'],yr)).fetchone()
+            yr_war = float(war_s['w']) if war_s else 0.0
+            if cur_mls < 3.0:   tiered_value += yr_war * (signing_rate * 0.20)
+            elif cur_mls < 6.0: tiered_value += yr_war * (signing_rate * 0.50)
+            else:               tiered_value += yr_war * signing_rate
             cur_mls += 1.0
         tiered_surplus = round(tiered_value - total_salary)
-
-        # WAR-$ adjusted: scale by current vs signing rate
-        adj_surplus = round(fa_rate_surplus * (current_rate / signing_rate)) if current_rate else None
+        adj_surplus    = round(fa_surplus * (current_rate/signing_rate)) if current_rate else None
 
         result.append({
-            "name":              name,
-            "team":              team_abbr,
-            "contract_type":     ctype,
-            "position":          seasons[0].get("position"),
-            "position_group":    POS_MAP.get(pos, pos.upper() if pos else None),
-            "first_season":      first_season,
-            "last_season":       last_season,
-            "seasons_in_db":     len(seasons),
-            "contract_notes":    notes,
-            "years":             effective_yrs,
-            "guarantee":         total,
-            "aav":               round(total / effective_yrs) if total and effective_yrs else None,
-            "pre_arb_years":     pre_arb_yrs,
-            "arb_years":         arb_yrs,
-            "fa_years":          fa_yrs,
-            "pct_fa_years":      round(fa_yrs/effective_yrs*100,1) if effective_yrs and fa_yrs is not None else None,
-            "ml_service":        mls_str,
+            "name": ps['name'], "team": ps['team'],
+            "contract_type": ps['contract_type'],
+            "position": ps.get('position'), "position_group": pg,
+            "first_season": first_s, "last_season": last_s,
+            "seasons_in_db": ps['seasons'],
+            "contract_notes": notes,
+            "years": eff_yrs, "guarantee": total_val,
+            "aav": round(total_val/yrs) if total_val and yrs else None,
+            "pre_arb_years": pre_arb_y, "arb_years": arb_y, "fa_years": fa_y,
+            "pct_fa_years": round(fa_y/eff_yrs*100,1) if eff_yrs and fa_y is not None else None,
+            "ml_service": mls_str,
             "total_salary_paid": total_salary,
-            "total_war":         round(total_war, 1),
-            "signing_rate":      signing_rate,
-            "fa_market_value":   round(fa_market_value),
-            "fa_rate_surplus":   fa_rate_surplus,
-            "tiered_surplus":    tiered_surplus,
+            "total_war": round(total_war,1),
+            "signing_rate": signing_rate,
+            "fa_market_value": round(total_war*signing_rate),
+            "fa_rate_surplus": fa_surplus,
+            "tiered_surplus": tiered_surplus,
             "inflation_adj_surplus": adj_surplus,
         })
 
-    valid = {"fa_rate_surplus","tiered_surplus","total_war",
-             "total_salary_paid","inflation_adj_surplus","first_season"}
+    valid = {"fa_rate_surplus","tiered_surplus","total_war","total_salary_paid","inflation_adj_surplus","first_season"}
     sk = sort_by if sort_by in valid else "fa_rate_surplus"
-    result.sort(
-        key=lambda x: (x.get(sk) is None, x.get(sk) or 0),
-        reverse=(order.lower() == "desc")
-    )
+    result.sort(key=lambda x: (x.get(sk) is None, x.get(sk) or 0), reverse=(order.lower()=="desc"))
     return result
-
