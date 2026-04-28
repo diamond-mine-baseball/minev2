@@ -1277,6 +1277,12 @@ def economics_team(
     sort_by: str   = Query("signing_class"),
     order: str     = Query("desc"),
 ):
+    """
+    Team contract economics with proper team-attributed surplus.
+    WAR and salary are constrained to seasons the player actually appeared
+    on this team's roster (via player_salaries), so traded-away contracts
+    don't inflate the signing team's numbers.
+    """
     conn = get_db()
     latest = conn.execute(
         "SELECT dollars_per_war FROM market_rates "
@@ -1284,69 +1290,190 @@ def economics_team(
     ).fetchone()
     current_rate = latest[0] if latest else None
 
-    # ── FA contracts from contract_valuations ─────────────────────────────────
-    valid_sql = {"signing_class","realized_surplus","aav","guarantee","total_realized_war","years"}
+    market_rates = {r[0]: r[1] for r in conn.execute(
+        "SELECT season, dollars_per_war FROM market_rates WHERE dollars_per_war IS NOT NULL"
+    ).fetchall()}
+
+    valid_sql = {"signing_class", "aav", "guarantee", "years"}
     sql_col   = sort_by if sort_by in valid_sql else "signing_class"
     direction = "ASC" if order.lower() == "asc" else "DESC"
 
-    fa_rows = conn.execute(f"""
-        SELECT cv.name, cv.canonical_name, cv.signing_class, cv.position,
-               cv.position_group, cv.age_at_signing, cv.years,
-               cv.aav, cv.guarantee, cv.term_start, cv.term_end,
-               cv.contract_status, cv.total_realized_war,
-               cv.realized_surplus, cv.expected_surplus,
-               cv.market_rate_at_signing,
-               COALESCE(c.contract_type,'fa') AS contract_type,
-               COALESCE(c.has_deferral,0)      AS has_deferral,
-               c.cbt_aav, c.agent
-        FROM contract_valuations cv
-        LEFT JOIN contracts c ON c.name = cv.name
-                              AND c.signing_class = cv.signing_class
-                              AND c.new_team = cv.new_team
-        WHERE cv.new_team = :team
-          AND cv.signing_class BETWEEN :era_start AND :era_end
-          AND cv.realized_surplus IS NOT NULL
-          AND COALESCE(c.contract_type,'fa') NOT IN ('extension','international')
-        ORDER BY cv.{sql_col} {direction}
+    # ── Pull all contracts associated with this team ───────────────────────────
+    # Source 1: FA contracts where this team was the signer (contract_valuations)
+    # Source 2: Any contract (FA, extension, intl) where player appears in
+    #           player_salaries for this team
+
+    # Get all players who appear in player_salaries for this team in the era
+    roster_seasons = conn.execute("""
+        SELECT name, season, salary, contract_type, contract_notes, ml_service
+        FROM player_salaries
+        WHERE team = :team AND season BETWEEN :era_start AND :era_end
+        ORDER BY name, season
     """, dict(team=team, era_start=era_start, era_end=era_end)).fetchall()
 
+    # Group by (name, contract_type) to find each player-contract stint
+    from collections import defaultdict
+    player_stints = defaultdict(list)  # (name, contract_type) -> [season rows]
+    for r in roster_seasons:
+        key = (r["name"], r["contract_type"])
+        player_stints[key].append(dict(r))
+
     contracts = []
-    for r in fa_rows:
-        d = dict(r)
-        if current_rate and d.get("realized_surplus") is not None and d.get("market_rate_at_signing"):
-            d["inflation_adj_surplus"] = round(d["realized_surplus"] * (current_rate / d["market_rate_at_signing"]))
+
+    for (name, ctype), seasons in player_stints.items():
+        seasons.sort(key=lambda x: x["season"])
+        first_s = seasons[0]["season"]
+        last_s  = seasons[-1]["season"]
+        season_years = [s["season"] for s in seasons]
+
+        # Skip pre-arb and plain arb (not interesting for contract economics)
+        if ctype in ("pre_arb", "arb", "unknown", "trade"):
+            continue
+
+        # Parse contract notes to get term/value
+        # Pick the most informative notes string
+        best_notes = max((s["contract_notes"] or "" for s in seasons), key=len)
+        yrs, total_val, t_start, t_end = _parse_contract_notes(best_notes)
+        observed_span = last_s - first_s + 1
+        eff_yrs = yrs if (yrs and yrs >= observed_span) else observed_span
+
+        # For FA contracts, try to get fuller info from contract_valuations
+        cv = conn.execute("""
+            SELECT cv.*, c.has_deferral, c.cbt_aav, c.agent,
+                   c.pre_arb_years, c.arb_years, c.fa_years,
+                   c.ml_service_at_signing
+            FROM contract_valuations cv
+            LEFT JOIN contracts c ON c.name = cv.name
+                                  AND c.signing_class = cv.signing_class
+                                  AND c.new_team = cv.new_team
+            WHERE cv.name = :name AND cv.new_team = :team
+              AND cv.signing_class BETWEEN :era_start AND :era_end
+            ORDER BY ABS(cv.signing_class - :first_s)
+            LIMIT 1
+        """, dict(name=name, team=team, era_start=era_start,
+                  era_end=era_end, first_s=first_s)).fetchone()
+
+        # Signing class and rate: use contract_valuations if available, else infer
+        if cv:
+            signing_class   = cv["signing_class"]
+            signing_rate    = cv["market_rate_at_signing"]
+            full_guarantee  = cv["guarantee"] or total_val
+            full_aav        = cv["aav"] or (round(total_val/yrs) if total_val and yrs else None)
+            full_years      = cv["years"] or eff_yrs
+            age_at_signing  = cv["age_at_signing"]
+            has_deferral    = cv["has_deferral"] or 0
+            cbt_aav_val     = cv["cbt_aav"]
+            position        = cv["position"]
+            position_group  = cv["position_group"]
         else:
-            d["inflation_adj_surplus"] = None
-        d["current_market_rate"] = current_rate
-        contracts.append(d)
+            signing_class   = t_start or first_s
+            signing_rate    = market_rates.get(signing_class) or market_rates.get(signing_class - 1)
+            full_guarantee  = total_val
+            full_aav        = round(total_val / yrs) if total_val and yrs else None
+            full_years      = eff_yrs
+            age_at_signing  = None
+            has_deferral    = 0
+            cbt_aav_val     = None
+            pos_raw         = (seasons[0].get("position") or "").lower()
+            POS_MAP = {
+                "sp":"SP","rhp-s":"SP","lhp-s":"SP","rp":"RP","lhp":"RP","rhp":"RP",
+                "rhp-r":"RP","lhp-r":"RP","c":"C","1b":"1B","2b":"2B","3b":"3B",
+                "ss":"SS","lf":"OF","cf":"OF","rf":"OF","of":"OF","dh":"DH",
+            }
+            position        = seasons[0].get("position")
+            position_group  = POS_MAP.get(pos_raw, pos_raw.upper() if pos_raw else None)
 
-    # ── Extensions + international ────────────────────────────────────────────
-    ext_contracts = _ext_surplus_rows(
-        conn, current_rate,
-        team=team, era_start=era_start, era_end=era_end,
-        min_years=1, limit=500,
-    )
-    # Only include extensions that have surplus data (signing_rate found)
-    ext_contracts = [e for e in ext_contracts if e.get("realized_surplus") is not None]
-    contracts.extend(ext_contracts)
+        if not signing_rate:
+            continue
 
-    # ── Sort merged list ──────────────────────────────────────────────────────
+        # ── Team-attributed WAR: only seasons on THIS team ────────────────────
+        placeholders = ",".join("?" * len(season_years))
+        war_row = conn.execute(f"""
+            SELECT COALESCE(SUM(season_war), 0) AS war FROM (
+                SELECT season,
+                    CASE
+                        WHEN bat_war > 1.5 AND pit_war > 1.5 THEN bat_war + pit_war
+                        ELSE MAX(bat_war, pit_war)
+                    END AS season_war
+                FROM (
+                    SELECT season,
+                        COALESCE(MAX(CASE WHEN src='bat' THEN bwar END), 0) AS bat_war,
+                        COALESCE(MAX(CASE WHEN src='pit' THEN bwar END), 0) AS pit_war
+                    FROM (
+                        SELECT season, 'bat' AS src, COALESCE(bwar,0) AS bwar
+                            FROM batting  WHERE name=? AND season IN ({placeholders})
+                        UNION ALL
+                        SELECT season, 'pit' AS src, COALESCE(bwar,0) AS bwar
+                            FROM pitching WHERE name=? AND season IN ({placeholders})
+                    ) GROUP BY season
+                )
+            )
+        """, [name] + season_years + [name] + season_years).fetchone()
+        team_war = float(war_row["war"]) if war_row else 0.0
+
+        # ── Team-attributed salary: only what this team paid ─────────────────
+        team_salary = sum(s["salary"] or 0 for s in seasons)
+        seasons_on_team = len(seasons)
+
+        # Surplus = (WAR × signing $/WAR) − salary this team paid
+        team_market_value = round(team_war * signing_rate)
+        team_surplus      = round(team_market_value - team_salary)
+
+        # WAR-$ adjusted
+        adj_surplus = round(team_surplus * (current_rate / signing_rate)) if current_rate else None
+
+        # Status based on whether player is still on team in recent season
+        last_known_yr = last_s
+        status = "active" if last_known_yr >= 2025 else "complete"
+
+        contracts.append({
+            "name":                  name,
+            "canonical_name":        name,
+            "signing_class":         signing_class,
+            "position":              position,
+            "position_group":        position_group,
+            "new_team":              team,
+            "age_at_signing":        age_at_signing,
+            "years":                 full_years,
+            "seasons_on_team":       seasons_on_team,
+            "aav":                   full_aav,
+            "guarantee":             full_guarantee,
+            "term_start":            t_start or first_s,
+            "term_end":              t_end or last_s,
+            "contract_status":       status,
+            "contract_type":         ctype,
+            "has_deferral":          has_deferral,
+            "cbt_aav":               cbt_aav_val,
+            "total_realized_war":    round(team_war, 1),
+            "team_salary_paid":      team_salary,
+            "realized_surplus":      team_surplus,
+            "expected_surplus":      None,
+            "market_rate_at_signing": signing_rate,
+            "realized_market_value": team_market_value,
+            "inflation_adj_surplus": adj_surplus,
+            "current_market_rate":   current_rate,
+            "seasons_in_db":         seasons_on_team,
+        })
+
+    # ── Sort ─────────────────────────────────────────────────────────────────
     valid_sort = {"signing_class","realized_surplus","inflation_adj_surplus",
-                  "aav","guarantee","total_realized_war","years"}
+                  "aav","guarantee","total_realized_war","years","seasons_on_team"}
     sk = sort_by if sort_by in valid_sort else "signing_class"
     contracts.sort(
         key=lambda x: (x.get(sk) is None, x.get(sk) or 0),
         reverse=(order.lower() == "desc")
     )
 
-    total_spent   = sum(r.get("guarantee")          or 0 for r in contracts)
-    total_surplus = sum(r.get("realized_surplus")   or 0 for r in contracts)
-    total_adj     = sum(r.get("inflation_adj_surplus") or 0 for r in contracts if r.get("inflation_adj_surplus"))
-    total_war     = sum(r.get("total_realized_war")  or 0 for r in contracts)
-    wins          = sum(1 for r in contracts if (r.get("realized_surplus") or 0) > 0)
+    total_spent   = sum(r["team_salary_paid"]     or 0 for r in contracts)
+    total_surplus = sum(r["realized_surplus"]      or 0 for r in contracts)
+    total_adj     = sum(r["inflation_adj_surplus"] or 0 for r in contracts if r["inflation_adj_surplus"])
+    total_war     = sum(r["total_realized_war"]    or 0 for r in contracts)
+    wins          = sum(1 for r in contracts if (r["realized_surplus"] or 0) > 0)
 
     return {
-        "team": team, "era_start": era_start, "era_end": era_end,
+        "team":          team,
+        "era_start":     era_start,
+        "era_end":       era_end,
         "total_contracts": len(contracts),
         "total_spent":                 total_spent,
         "total_surplus":               total_surplus,

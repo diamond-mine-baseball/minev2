@@ -141,9 +141,18 @@ def parse_sheet(arr, season):
     hdr_row = None
 
     for i, row in enumerate(arr):
-        if str(row[0]).strip().lower().startswith('player'):
+        c0 = str(row[0]).strip().lower()
+        # New format: row starts with 'player'
+        if c0.startswith('player'):
             hdr_row = i
             fmt = detect_format(row)
+            break
+        # Old format (2009-2018): no 'Player' header — row has Pos'n/ML Srv in col 1+
+        # e.g. ["Pos'n", "ML Srv", "Agent", "Length/Total Value", "2009"...]
+        cols_str = ' '.join(str(v).lower() for v in row[:6])
+        if ("pos" in cols_str and ("ml srv" in cols_str or "ml s" in cols_str)):
+            hdr_row = i
+            fmt = "A"  # old format is always Format A
             break
     if hdr_row is None:
         return players

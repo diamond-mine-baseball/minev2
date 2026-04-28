@@ -293,7 +293,7 @@ function ByTeamView() {
       {data && (
         <>
           <div style={{display:'flex',gap:12,flexWrap:'wrap',marginBottom:20}}>
-            {[['CONTRACTS',data.total_contracts],['TOTAL SPENT',fmt.dollars(data.total_spent)],
+            {[['CONTRACTS',data.total_contracts],['TEAM PAID',fmt.dollars(data.total_spent)],
               ['TOTAL SURPLUS',fmt.surplus(data.total_surplus)],['TOTAL rWAR',fmt.war(data.total_war)],
               ['WIN RATE',fmt.pct(data.win_rate)]].map(([l,v])=>(
               <div key={l} style={{padding:'12px 20px',background:'#0f172a',borderRadius:8,
@@ -308,7 +308,7 @@ function ByTeamView() {
             <table style={tableStyle}>
               <thead><tr>
                 {[['YR','signing_class'],['PLAYER',null],['TYPE',null],['POS','position_group'],
-                  ['YRS','years'],['AAV','aav'],['GUARANTEE','guarantee'],
+                  ['CONTRACT YRS','years'],['ON TEAM','seasons_on_team'],['AAV','aav'],['TEAM PAID','team_salary_paid'],
                   ['rWAR','total_realized_war'],['SURPLUS','realized_surplus'],
                   ['WAR-$ ADJ','inflation_adj_surplus']].map(([l,f])=>(
                   f?<SortTH key={f} label={l} field={f} sort={sort} onSort={onSort}/>
@@ -325,9 +325,10 @@ function ByTeamView() {
                     </td>
                     <td style={TD}><Badge type={c.contract_type}/></td>
                     <td style={{...TD,color:'#64748b'}}>{c.position_group}</td>
-                    <td style={{...TD,color:'#64748b'}}>{c.years}</td>
+                    <td style={{...TD,color:'#64748b'}}>{c.years??'—'}</td>
+                    <td style={{...TD,color:c.seasons_on_team<c.years?'#f59e0b':'#64748b',fontFamily:'DM Mono'}}>{c.seasons_on_team}</td>
                     <td style={TD}>{fmt.dollars(c.aav)}</td>
-                    <td style={TD}>{fmt.dollars(c.guarantee)}</td>
+                    <td style={TD}>{fmt.dollars(c.team_salary_paid)}</td>
                     <td style={TD}>{fmt.war(c.total_realized_war)}</td>
                     <td style={{...TD,color:SURPLUS_COLOR(c.realized_surplus),fontWeight:600}}>
                       {fmt.surplus(c.realized_surplus)}
@@ -417,7 +418,7 @@ function ExtensionsView() {
   const [data,   setData]   = useState([])
   const [sData,  setSData]  = useState([])
   const [loading,setLoading]= useState(false)
-  const [sort,   setSort]   = useState({field:'salary',   dir:'desc'})
+  const [sort,   setSort]   = useState({field:'aav',      dir:'desc'})
   const [sSort,  setSSort]  = useState({field:'fa_rate_surplus',dir:'desc'})
   const [filters,setFilters]= useState({team:'',era_start:'',era_end:'',position_group:''})
 
@@ -487,7 +488,7 @@ function ExtensionsView() {
               <thead><tr>
                 {[['SEASONS',null],['PLAYER',null],['TYPE',null],['TEAM',null],
                   ['POS',null],['MLS','ml_service'],['YRS','years'],['GUARANTEE','guarantee'],
-                  ['SALARY','salary'],['PRE',null],['ARB',null],['FA',null],['%FA',null]
+                  ['AAV','aav'],['SALARY','salary'],['PRE',null],['ARB',null],['FA',null],['%FA',null]
                 ].map(([l,f])=>(
                   f?<SortTH key={f} label={l} field={f} sort={sort} onSort={onSort}/>
                    :<th key={l} style={TH}>{l}</th>
@@ -504,7 +505,8 @@ function ExtensionsView() {
                     <td style={{...TD,color:'#64748b',fontFamily:'DM Mono',fontSize:11}}>{fmt.mls(c.ml_service)}</td>
                     <td style={{...TD,color:'#64748b'}}>{c.years??'—'}</td>
                     <td style={TD}>{fmt.dollars(c.guarantee)}</td>
-                    <td style={{...TD,fontWeight:c.salary>15e6?600:400}}>{fmt.dollars(c.salary)}</td>
+                    <td style={{...TD,fontWeight:600}}>{fmt.dollars(c.aav)}</td>
+                    <td style={{...TD,color:'#64748b',fontSize:11}}>{fmt.dollars(c.salary)}</td>
                     <td style={{...TD,color:'#22c55e',fontFamily:'DM Mono'}}>{c.pre_arb_years??'—'}</td>
                     <td style={{...TD,color:'#f59e0b',fontFamily:'DM Mono'}}>{c.arb_years??'—'}</td>
                     <td style={{...TD,color:'#3b82f6',fontFamily:'DM Mono'}}>{c.fa_years??'—'}</td>
