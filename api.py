@@ -1059,14 +1059,20 @@ def _ext_surplus_rows(conn, current_rate, team="", era_start=0, era_end=9999,
                        market_rates.get((t_start or ps['first_season']) - 1)
 
         # Sum WAR across all seasons
+        # Use contract term window (t_start/t_end) when available — prevents
+        # pulling WAR from adjacent contracts on same team with same type
+        war_start = t_start if t_start else ps['first_season']
+        war_end   = t_end   if t_end   else ps['last_season']
         war_row = conn.execute("""
-            SELECT COALESCE(SUM(w),0) AS war FROM (
-                SELECT bwar AS w FROM batting  WHERE name=? AND season BETWEEN ? AND ?
-                UNION ALL
-                SELECT COALESCE(bwar,0) AS w FROM pitching WHERE name=? AND season BETWEEN ? AND ?
-            )
-        """, (ps['name'], ps['first_season'], ps['last_season'],
-              ps['name'], ps['first_season'], ps['last_season'])).fetchone()
+            SELECT COALESCE(SUM(season_war), 0) AS war FROM (
+                    SELECT season, MAX(bwar) AS season_war FROM (
+                        SELECT season, COALESCE(bwar,0) AS bwar FROM batting  WHERE name=? AND season BETWEEN ? AND ?
+                        UNION ALL
+                        SELECT season, COALESCE(bwar,0) AS bwar FROM pitching WHERE name=? AND season BETWEEN ? AND ?
+                    ) GROUP BY season
+                )
+        """, (ps['name'], war_start, war_end,
+              ps['name'], war_start, war_end)).fetchone()
         total_war = float(war_row['war']) if war_row else 0.0
 
         total_salary = conn.execute(
@@ -1519,13 +1525,18 @@ def economics_extension_surplus(
         signing_rate = market_rates.get(t_start or first_s) or market_rates.get((t_start or first_s)-1)
         if not signing_rate: continue
 
+        war_start = t_start if t_start else first_s
+        war_end   = t_end   if t_end   else last_s
         war_row = conn.execute("""
-            SELECT COALESCE(SUM(w),0) AS war FROM (
-                SELECT bwar AS w FROM batting  WHERE name=? AND season BETWEEN ? AND ?
-                UNION ALL
-                SELECT COALESCE(bwar,0) AS w FROM pitching WHERE name=? AND season BETWEEN ? AND ?
-            )
-        """, (ps['name'],first_s,last_s,ps['name'],first_s,last_s)).fetchone()
+            SELECT COALESCE(SUM(season_war), 0) AS war FROM (
+                    SELECT season, MAX(bwar) AS season_war FROM (
+                        SELECT season, COALESCE(bwar,0) AS bwar FROM batting  WHERE name=? AND season BETWEEN ? AND ?
+                        UNION ALL
+                        SELECT season, COALESCE(bwar,0) AS bwar FROM pitching WHERE name=? AND season BETWEEN ? AND ?
+                    ) GROUP BY season
+                )
+        """, (ps['name'], war_start, war_end,
+              ps['name'], war_start, war_end)).fetchone()
         total_war = float(war_row['war']) if war_row else 0.0
 
         total_salary = conn.execute(
@@ -1544,10 +1555,10 @@ def economics_extension_surplus(
         for sr in seasons_list:
             yr = sr[0]
             war_s = conn.execute("""
-                SELECT COALESCE(SUM(w),0) AS w FROM (
-                    SELECT bwar AS w FROM batting  WHERE name=? AND season=?
+                SELECT COALESCE(MAX(bwar),0) AS w FROM (
+                    SELECT COALESCE(bwar,0) AS bwar FROM batting  WHERE name=? AND season=?
                     UNION ALL
-                    SELECT COALESCE(bwar,0) AS w FROM pitching WHERE name=? AND season=?
+                    SELECT COALESCE(bwar,0) AS bwar FROM pitching WHERE name=? AND season=?
                 )
             """, (ps['name'],yr,ps['name'],yr)).fetchone()
             yr_war = float(war_s['w']) if war_s else 0.0
