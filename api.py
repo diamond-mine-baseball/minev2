@@ -961,43 +961,6 @@ def _compute_pitcher_sdi(conn, current, season):
 
 
 
-@app.get("/debug/team-step")
-def debug_team_step():
-    import traceback
-    try:
-        conn = get_db()
-        team = 'LAN'
-        era_start, era_end = 2019, 2020
-
-        # Step 1: batting rows
-        bat = conn.execute(
-            "SELECT name, season, team, g, bwar FROM batting "
-            "WHERE team=? AND season BETWEEN ? AND ? "
-            "AND team NOT IN ('TOT','2TM','3TM','4TM') LIMIT 5",
-            (team, era_start, era_end)
-        ).fetchall()
-
-        # Step 2: what the batting table team codes look like
-        team_codes = conn.execute(
-            "SELECT DISTINCT team FROM batting WHERE season=2019 LIMIT 20"
-        ).fetchall()
-
-        # Step 3: check if LAN or LAD
-        lan_count = conn.execute(
-            "SELECT COUNT(*) FROM batting WHERE team='LAN' AND season=2019"
-        ).fetchone()[0]
-        lad_count = conn.execute(
-            "SELECT COUNT(*) FROM batting WHERE team='LAD' AND season=2019"
-        ).fetchone()[0]
-
-        return {
-            "bat_sample": [dict(r) for r in bat],
-            "team_codes_sample": [r[0] for r in team_codes],
-            "LAN_2019_count": lan_count,
-            "LAD_2019_count": lad_count,
-        }
-    except Exception as e:
-        return {"error": str(e), "tb": traceback.format_exc()}
 
 if __name__ == "__main__":
     import uvicorn
@@ -1046,6 +1009,20 @@ def _service_buckets(mls_str, contract_years):
         cur += 1.0
     return pre_arb, arb, fa
 
+
+
+# Cot's abbreviations (player_salaries, contracts) -> BRef table abbreviations (batting, pitching)
+COTS_TO_BREF = {
+    'LAN':'LAD', 'KCA':'KCR', 'CHA':'CHW', 'SDN':'SDP', 'SLN':'STL',
+    'TBA':'TBR', 'WAS':'WSN', 'NYA':'NYY', 'NYN':'NYM', 'CHN':'CHC',
+    'SFN':'SFG', 'ANA':'LAA', 'ATH':'OAK', 'MIA':'FLA',
+    # These are already the same in both:
+    # ATL, BAL, BOS, CIN, CLE, COL, DET, HOU, MIN, MIL, PHI, PIT, SEA, TEX, TOR, ARI
+}
+BREF_TO_COTS = {v: k for k, v in COTS_TO_BREF.items()}
+
+def to_bref(team): return COTS_TO_BREF.get(team, team)
+def to_cots(team): return BREF_TO_COTS.get(team, team)
 
 def _ext_surplus_rows(conn, current_rate, team="", era_start=0, era_end=9999,
                       position_group="", contract_type="", min_years=1, limit=200):
@@ -1346,21 +1323,24 @@ def economics_team(
 
     # ── Step 1: get all player-seasons where player appeared for this team ────
     # Exclude TOT/2TM summary rows — we only want team-specific split rows
+    # Translate Cot's abbreviation (LAN, KCA...) to BRef stats table abbrev (LAD, KCR...)
+    bref_team = to_bref(team)
+
     bat_rows = conn.execute("""
         SELECT name, season, team, g, COALESCE(bwar,0) AS bwar
         FROM batting
         WHERE team = :team AND season BETWEEN :era_start AND :era_end
-          AND team NOT IN ('TOT','2TM','3TM','4TM')
+          AND team NOT IN ('TOT','2TM','3TM','4TM','LGN','LGS')
         ORDER BY name, season
-    """, dict(team=team, era_start=era_start, era_end=era_end)).fetchall()
+    """, dict(team=bref_team, era_start=era_start, era_end=era_end)).fetchall()
 
     pit_rows = conn.execute("""
         SELECT name, season, team, g, COALESCE(bwar,0) AS bwar
         FROM pitching
         WHERE team = :team AND season BETWEEN :era_start AND :era_end
-          AND team NOT IN ('TOT','2TM','3TM','4TM')
+          AND team NOT IN ('TOT','2TM','3TM','4TM','LGN','LGS')
         ORDER BY name, season
-    """, dict(team=team, era_start=era_start, era_end=era_end)).fetchall()
+    """, dict(team=bref_team, era_start=era_start, era_end=era_end)).fetchall()
 
     # Build per-(name, season) war dict: Ohtani-aware
     from collections import defaultdict
@@ -1395,7 +1375,6 @@ def economics_team(
                   AND team NOT IN ('TOT','2TM','3TM','4TM')
             """, (name, season)).fetchone()[0]
         if not tot:
-            # Pitcher — use pitching g
             tot = conn.execute("""
                 SELECT COALESCE(MAX(g), 0) FROM pitching
                 WHERE name = ? AND season = ?
@@ -1405,7 +1384,7 @@ def economics_team(
             tot = conn.execute("""
                 SELECT COALESCE(SUM(g), 0) FROM pitching
                 WHERE name = ? AND season = ?
-                  AND team NOT IN ('TOT','2TM','3TM','4TM')
+                  AND team NOT IN ('TOT','2TM','3TM','4TM','LGN','LGS')
             """, (name, season)).fetchone()[0]
         total_g_cache[(name, season)] = max(int(tot or 0), 1)
 
