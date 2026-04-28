@@ -959,6 +959,46 @@ def _compute_pitcher_sdi(conn, current, season):
     }
 
 
+
+
+@app.get("/debug/team-step")
+def debug_team_step():
+    import traceback
+    try:
+        conn = get_db()
+        team = 'LAN'
+        era_start, era_end = 2019, 2020
+
+        # Step 1: batting rows
+        bat = conn.execute(
+            "SELECT name, season, team, g, bwar FROM batting "
+            "WHERE team=? AND season BETWEEN ? AND ? "
+            "AND team NOT IN ('TOT','2TM','3TM','4TM') LIMIT 5",
+            (team, era_start, era_end)
+        ).fetchall()
+
+        # Step 2: what the batting table team codes look like
+        team_codes = conn.execute(
+            "SELECT DISTINCT team FROM batting WHERE season=2019 LIMIT 20"
+        ).fetchall()
+
+        # Step 3: check if LAN or LAD
+        lan_count = conn.execute(
+            "SELECT COUNT(*) FROM batting WHERE team='LAN' AND season=2019"
+        ).fetchone()[0]
+        lad_count = conn.execute(
+            "SELECT COUNT(*) FROM batting WHERE team='LAD' AND season=2019"
+        ).fetchone()[0]
+
+        return {
+            "bat_sample": [dict(r) for r in bat],
+            "team_codes_sample": [r[0] for r in team_codes],
+            "LAN_2019_count": lan_count,
+            "LAD_2019_count": lad_count,
+        }
+    except Exception as e:
+        return {"error": str(e), "tb": traceback.format_exc()}
+
 if __name__ == "__main__":
     import uvicorn
     port = int(_os.getenv("PORT", 5001))
